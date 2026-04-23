@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "name": "Earthquake",
+  "nodes": [
+    {
+      "id": "burglary",
+      "name": "Burglary",
+      "states": ["no", "yes"],
+      "parents": [],
+      "cpt": [0.999, 0.001],
+      "description": "Someone broke into the house overnight. Rare event."
+    },
+    {
+      "id": "earthquake",
+      "name": "Earthquake",
+      "states": ["no", "yes"],
+      "parents": [],
+      "cpt": [0.998, 0.002],
+      "description": "A detectable earthquake occurred. Rare in this region."
+    },
+    {
+      "id": "alarm",
+      "name": "Alarm",
+      "states": ["no", "yes"],
+      "parents": ["burglary", "earthquake"],
+      "cpt": [0.999, 0.001, 0.71, 0.29, 0.06, 0.94, 0.05, 0.95],
+      "description": "The house alarm went off. Triggered reliably by burglary, occasionally by earthquakes, very rarely on its own."
+    },
+    {
+      "id": "john",
+      "name": "John Calls",
+      "states": ["no", "yes"],
+      "parents": ["alarm"],
+      "cpt": [0.95, 0.05, 0.1, 0.9],
+      "description": "Neighbor John phoned about the alarm. Usually hears it, sometimes calls by mistake."
+    },
+    {
+      "id": "mary",
+      "name": "Mary Calls",
+      "states": ["no", "yes"],
+      "parents": ["alarm"],
+      "cpt": [0.99, 0.01, 0.3, 0.7],
+      "description": "Neighbor Mary phoned about the alarm. Less attentive than John — misses ~30% of alarms."
+    }
+  ],
+  "evidence": {},
+  "positions": {
+    "burglary":   { "x":  60, "y":  40 },
+    "earthquake": { "x": 360, "y":  40 },
+    "alarm":      { "x": 210, "y": 180 },
+    "john":       { "x":  60, "y": 320 },
+    "mary":       { "x": 360, "y": 320 }
+  }
+}

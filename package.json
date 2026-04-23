@@ -1,0 +1,29 @@
+{
+  "name": "bayes",
+  "version": "0.1.0",
+  "description": "Bayesian network library, web app, and CLI/Claude Code skill",
+  "type": "module",
+  "main": "./lib/index.js",
+  "bin": {
+    "bayes": "./cli/bayes.js"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --test test/*.test.js",
+    "cli": "node cli/bayes.js"
+  },
+  "files": [
+    "lib",
+    "cli",
+    "skill",
+    "examples"
+  ],
+  "engines": {
+    "node": ">=18.17"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  }
+}

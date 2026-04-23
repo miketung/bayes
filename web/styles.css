@@ -1,0 +1,188 @@
+@import url('https://rsms.me/inter/inter.css');
+
+:root {
+  --node-fill: #eef2ff;
+  --node-ev: #fde68a;
+  --node-border: #6366f1;
+  --edge: #94a3b8;
+}
+
+html, body { font-feature-settings: "cv11", "ss01"; }
+
+/* Button styles used across the app (applied via @apply-style utility names
+   we emit in the HTML; Tailwind Play CDN supports arbitrary classes only when
+   the class is directly used — so we supply them here as real CSS). */
+
+.btn-primary {
+  background: linear-gradient(135deg, #0ea5e9, #6366f1);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  border: none;
+  cursor: pointer;
+  transition: transform 0.05s ease;
+}
+.btn-primary:active { transform: translateY(1px); }
+
+.btn-ghost {
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #334155;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  line-height: 1;
+  white-space: nowrap;
+}
+.btn-ghost:hover { background: #f1f5f9; }
+.btn-ghost.active { background: #e0e7ff; color: #4338ca; }
+
+.view-toggle.active {
+  background: #e0e7ff;
+  color: #4338ca;
+}
+
+.toast {
+  pointer-events: auto;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  background: #0f172a;
+  color: white;
+  box-shadow: 0 10px 25px -5px rgba(15,23,42,0.35);
+  animation: toast-in 0.15s ease-out;
+}
+.toast.warn { background: #b91c1c; }
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Inspector bits */
+.inspector-section {
+  margin-top: 16px;
+}
+.inspector-section:first-child { margin-top: 0; }
+.inspector-section > h3 {
+  font-size: 10px;
+  font-weight: 600;
+  color: #94a3b8;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.state-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: 13px;
+}
+.state-row input[type=text] {
+  flex: 1;
+  padding: 4px 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 13px;
+  min-width: 0;
+}
+.state-row button {
+  flex: 0 0 auto;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #94a3b8;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.state-row button:hover { background: #fef2f2; color: #dc2626; }
+
+.cpt-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.cpt-table th, .cpt-table td {
+  text-align: right;
+  padding: 4px 6px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.cpt-table th {
+  font-weight: 500;
+  color: #64748b;
+  background: #f8fafc;
+}
+.cpt-table th.parent-header {
+  text-align: left;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.cpt-table td.parent-cell {
+  text-align: left;
+  color: #475569;
+  font-weight: 500;
+}
+.cpt-table input {
+  width: 60px;
+  text-align: right;
+  border: 1px solid transparent;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font: inherit;
+  background: transparent;
+}
+.cpt-table input:focus {
+  outline: none;
+  border-color: #c7d2fe;
+  background: #eef2ff;
+}
+.cpt-table tr.bad-row { background: #fef2f2; }
+.cpt-table tr.bad-row td { color: #b91c1c; }
+
+.marginal-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0;
+  font-size: 12px;
+}
+.marginal-bar .label {
+  flex: 0 0 72px;
+  color: #475569;
+}
+.marginal-bar .track {
+  flex: 1;
+  display: block;
+  height: 8px;
+  background: #f1f5f9;
+  border-radius: 999px;
+  overflow: hidden;
+  min-width: 0;
+}
+.marginal-bar .fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #0ea5e9, #6366f1);
+  border-radius: 999px;
+  transition: width 0.18s ease-out;
+}
+.marginal-bar.evidence .fill {
+  background: linear-gradient(90deg, #f59e0b, #ea580c);
+}
+.marginal-bar .pct {
+  flex: 0 0 44px;
+  text-align: right;
+  color: #334155;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Cytoscape node labels — base size tweak */
+#cy { cursor: grab; }
+#cy.dragging { cursor: grabbing; }

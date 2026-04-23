@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "name": "Asia",
+  "nodes": [
+    {
+      "id": "asia",
+      "name": "Visit to Asia",
+      "states": ["no", "yes"],
+      "parents": [],
+      "cpt": [0.99, 0.01],
+      "description": "Whether the patient recently travelled to a region where tuberculosis is prevalent. Raises TB risk if yes."
+    },
+    {
+      "id": "smoke",
+      "name": "Smoker",
+      "states": ["no", "yes"],
+      "parents": [],
+      "cpt": [0.5, 0.5],
+      "description": "Whether the patient is a smoker. Common risk factor for both lung cancer and bronchitis."
+    },
+    {
+      "id": "tub",
+      "name": "Tuberculosis",
+      "states": ["no", "yes"],
+      "parents": ["asia"],
+      "cpt": [0.99, 0.01, 0.95, 0.05],
+      "description": "Whether the patient has tuberculosis. Base rate is low; travel to Asia multiplies risk roughly five-fold."
+    },
+    {
+      "id": "lung",
+      "name": "Lung Cancer",
+      "states": ["no", "yes"],
+      "parents": ["smoke"],
+      "cpt": [0.99, 0.01, 0.9, 0.1],
+      "description": "Whether the patient has lung cancer. Smokers have roughly 10x the baseline risk."
+    },
+    {
+      "id": "bronc",
+      "name": "Bronchitis",
+      "states": ["no", "yes"],
+      "parents": ["smoke"],
+      "cpt": [0.7, 0.3, 0.4, 0.6],
+      "description": "Whether the patient has bronchitis. Common in smokers (~60%), still notable among non-smokers (~30%)."
+    },
+    {
+      "id": "either",
+      "name": "TB or Lung Cancer",
+      "states": ["no", "yes"],
+      "parents": ["tub", "lung"],
+      "cpt": [1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
+      "description": "Auxiliary deterministic node: true iff the patient has either tuberculosis or lung cancer. Lets us combine the two causes into a single downstream signal for X-ray and dyspnea."
+    },
+    {
+      "id": "xray",
+      "name": "Positive X-ray",
+      "states": ["no", "yes"],
+      "parents": ["either"],
+      "cpt": [0.95, 0.05, 0.02, 0.98],
+      "description": "Whether the chest X-ray comes back positive. 98% sensitive for TB-or-cancer, 5% false-positive rate."
+    },
+    {
+      "id": "dysp",
+      "name": "Dyspnea",
+      "states": ["no", "yes"],
+      "parents": ["either", "bronc"],
+      "cpt": [0.9, 0.1, 0.2, 0.8, 0.3, 0.7, 0.1, 0.9],
+      "description": "Whether the patient reports shortness of breath. Can stem from TB/cancer, bronchitis, or both; ~10% background rate without any cause."
+    }
+  ],
+  "evidence": {},
+  "positions": {
+    "asia":   { "x":  60, "y":  40 },
+    "smoke":  { "x": 360, "y":  40 },
+    "tub":    { "x":  60, "y": 160 },
+    "lung":   { "x": 260, "y": 160 },
+    "bronc":  { "x": 460, "y": 160 },
+    "either": { "x": 160, "y": 280 },
+    "xray":   { "x":  60, "y": 400 },
+    "dysp":   { "x": 360, "y": 400 }
+  }
+}

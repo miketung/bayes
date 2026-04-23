@@ -1,0 +1,278 @@
+// Right-side inspector: shows selected node's editable name, states, CPT,
+// evidence buttons, and a posterior bar chart.
+//
+// Emits all mutations through the `actions` callbacks so app.js can re-run
+// inference and re-render.
+
+import { renderCPT } from './cpt-editor.js';
+
+export function renderInspector(container, { net, selectedId, marginals, actions }) {
+  if (!selectedId) {
+    renderSummary(container, { net, marginals, actions });
+    return;
+  }
+  const node = net.getNode(selectedId);
+  const marginal = marginals[selectedId] ?? {};
+  const evIdx = net.evidence.get(selectedId);
+
+  container.innerHTML = '';
+
+  const header = document.createElement('div');
+  header.className = 'flex items-center gap-2 mb-3';
+  header.innerHTML = `
+    <input type="text" id="nodeName" class="flex-1 px-2 py-1 text-sm font-semibold border border-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+    <button class="btn-ghost text-xs" data-act="delete" title="Delete node">✕</button>
+    <button class="btn-ghost text-xs md:hidden" data-act="close" title="Close">⌄</button>
+  `;
+  const nameInput = header.querySelector('#nodeName');
+  nameInput.value = node.name;
+  nameInput.addEventListener('change', () => actions.rename(selectedId, nameInput.value));
+  header.querySelector('[data-act=delete]').addEventListener('click', () => {
+    if (confirm(`Delete node "${node.name}"? Edges to/from it will be removed.`)) {
+      actions.removeNode(selectedId);
+    }
+  });
+  header.querySelector('[data-act=close]').addEventListener('click', () => actions.deselect());
+  container.appendChild(header);
+
+  const idLine = document.createElement('div');
+  idLine.className = 'text-xs text-slate-400 mb-3 font-mono';
+  idLine.textContent = `id: ${node.id}`;
+  container.appendChild(idLine);
+
+  // Description — free-text explanation of the variable. Optional.
+  const descSec = section('Description');
+  const desc = document.createElement('textarea');
+  desc.rows = 1;
+  desc.placeholder = 'What does this variable represent?';
+  desc.className = 'w-full text-xs border border-slate-200 rounded px-2 py-1.5 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-200 leading-snug overflow-hidden';
+  desc.style.minHeight = '32px';
+  desc.value = node.description ?? '';
+  const autosize = () => {
+    desc.style.height = 'auto';
+    desc.style.height = desc.scrollHeight + 'px';
+  };
+  desc.addEventListener('input', autosize);
+  desc.addEventListener('change', () => actions.setDescription(selectedId, desc.value));
+  descSec.appendChild(desc);
+  container.appendChild(descSec);
+  // scrollHeight requires a layout pass; defer so it reads correctly on first paint.
+  requestAnimationFrame(autosize);
+
+  // Posterior / marginal
+  const marginalSec = section('Belief');
+  if (marginal && Object.keys(marginal).length) {
+    for (let i = 0; i < node.states.length; i++) {
+      const s = node.states[i];
+      const p = marginal[s] ?? 0;
+      const bar = document.createElement('div');
+      bar.className = 'marginal-bar' + (evIdx === i ? ' evidence' : '');
+      bar.dataset.nodeId = node.id;
+      bar.dataset.stateIdx = String(i);
+      bar.innerHTML = `
+        <span class="label">${escapeHtml(s)}</span>
+        <span class="track"><span class="fill" style="width:${(p * 100).toFixed(1)}%"></span></span>
+        <span class="pct">${(p * 100).toFixed(1)}%</span>
+      `;
+      marginalSec.appendChild(bar);
+    }
+  } else {
+    const msg = document.createElement('div');
+    msg.className = 'text-xs text-slate-400';
+    msg.textContent = 'Run inference to see beliefs.';
+    marginalSec.appendChild(msg);
+  }
+  container.appendChild(marginalSec);
+
+  // Evidence
+  const evSec = section('Evidence');
+  const evRow = document.createElement('div');
+  evRow.className = 'flex flex-wrap gap-1';
+  for (let i = 0; i < node.states.length; i++) {
+    const btn = document.createElement('button');
+    btn.className = 'btn-ghost text-xs' + (evIdx === i ? ' active' : '');
+    btn.textContent = node.states[i];
+    btn.addEventListener('click', () => actions.setEvidence(selectedId, i));
+    evRow.appendChild(btn);
+  }
+  const clr = document.createElement('button');
+  clr.className = 'btn-ghost text-xs text-slate-400';
+  clr.textContent = 'clear';
+  clr.disabled = evIdx == null;
+  clr.addEventListener('click', () => actions.clearEvidence(selectedId));
+  evRow.appendChild(clr);
+  evSec.appendChild(evRow);
+  container.appendChild(evSec);
+
+  // States editor
+  const statesSec = section('States');
+  for (let i = 0; i < node.states.length; i++) {
+    const row = document.createElement('div');
+    row.className = 'state-row';
+    row.innerHTML = `
+      <input type="text" value="${escapeAttr(node.states[i])}" />
+      <button title="Remove" ${node.states.length <= 2 ? 'disabled' : ''}>✕</button>
+    `;
+    const inp = row.querySelector('input');
+    const rmBtn = row.querySelector('button');
+    inp.addEventListener('change', () => {
+      const next = [...node.states];
+      next[i] = inp.value.trim() || node.states[i];
+      actions.setStates(selectedId, next);
+    });
+    rmBtn.addEventListener('click', () => {
+      if (node.states.length <= 2) return;
+      const next = node.states.filter((_, j) => j !== i);
+      actions.setStates(selectedId, next);
+    });
+    statesSec.appendChild(row);
+  }
+  const addState = document.createElement('button');
+  addState.className = 'btn-ghost text-xs mt-1';
+  addState.textContent = '+ Add state';
+  addState.addEventListener('click', () => {
+    let i = 1;
+    while (node.states.includes(`state${i}`)) i++;
+    actions.setStates(selectedId, [...node.states, `state${i}`]);
+  });
+  statesSec.appendChild(addState);
+  container.appendChild(statesSec);
+
+  // CPT
+  const cptSec = section(node.parents.length ? `Conditional probability — P(${node.id} | ${node.parents.join(', ')})` : `Prior — P(${node.id})`);
+  const cptDiv = document.createElement('div');
+  renderCPT(cptDiv, net, selectedId, (cpt) => actions.setCPT(selectedId, cpt));
+  cptSec.appendChild(cptDiv);
+  container.appendChild(cptSec);
+
+  // Parent management
+  const parentSec = section('Parents');
+  if (node.parents.length === 0) {
+    parentSec.appendChild(textLine('No parents.'));
+  } else {
+    for (const pId of node.parents) {
+      const row = document.createElement('div');
+      row.className = 'state-row';
+      row.innerHTML = `
+        <span class="flex-1 text-sm">${escapeHtml(net.getNode(pId).name)} <span class="text-slate-400 font-mono text-xs">(${pId})</span></span>
+        <button title="Detach">✕</button>
+      `;
+      row.querySelector('button').addEventListener('click', () => actions.removeEdge(pId, selectedId));
+      parentSec.appendChild(row);
+    }
+  }
+  const addParent = document.createElement('div');
+  addParent.className = 'flex gap-1 mt-1';
+  const sel = document.createElement('select');
+  sel.className = 'btn-ghost text-sm bg-transparent flex-1';
+  sel.innerHTML = `<option value="">Add parent…</option>` + net.ids()
+    .filter(id => id !== selectedId && !node.parents.includes(id))
+    .map(id => `<option value="${escapeAttr(id)}">${escapeHtml(net.getNode(id).name)}</option>`)
+    .join('');
+  sel.addEventListener('change', () => {
+    if (sel.value) actions.addEdge(sel.value, selectedId);
+  });
+  addParent.appendChild(sel);
+  parentSec.appendChild(addParent);
+  container.appendChild(parentSec);
+}
+
+// Summary view shown when no node is selected: every node's current marginals
+// as a scrollable stack of compact cards.  Clicking a card selects the node.
+function renderSummary(container, { net, marginals, actions }) {
+  container.innerHTML = '';
+
+  const header = document.createElement('div');
+  header.className = 'flex items-baseline justify-between mb-3';
+  header.innerHTML = `
+    <div class="text-xs uppercase tracking-wider font-semibold text-slate-400">Beliefs</div>
+    <div class="text-[10px] text-slate-400 tabular-nums" id="summaryMeta"></div>
+  `;
+  container.appendChild(header);
+
+  if (net.size === 0) {
+    const msg = document.createElement('p');
+    msg.className = 'text-sm text-slate-400';
+    msg.textContent = 'Add nodes to see beliefs here.';
+    container.appendChild(msg);
+    return;
+  }
+
+  // If any evidence is set, show a "clear all" affordance.
+  if (net.evidence.size > 0) {
+    const clr = document.createElement('button');
+    clr.className = 'btn-ghost text-xs mb-3';
+    clr.textContent = `Clear all evidence (${net.evidence.size})`;
+    clr.addEventListener('click', () => actions.clearEvidence());
+    container.appendChild(clr);
+  }
+
+  const list = document.createElement('div');
+  list.className = 'space-y-3';
+  for (const id of net.ids()) {
+    const node = net.getNode(id);
+    const marginal = marginals[id] ?? {};
+    const evIdx = net.evidence.get(id);
+
+    const card = document.createElement('div');
+    card.className = 'rounded-md border border-slate-200 p-2 hover:border-indigo-300 hover:bg-slate-50/60 cursor-pointer transition-colors';
+    card.addEventListener('click', () => actions.select(id));
+
+    const titleRow = document.createElement('div');
+    titleRow.className = 'flex items-baseline justify-between gap-2 mb-1';
+    titleRow.innerHTML = `
+      <span class="text-sm font-medium text-slate-800 truncate">${escapeHtml(node.name)}</span>
+      ${evIdx != null
+        ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-medium shrink-0">obs: ${escapeHtml(node.states[evIdx])}</span>`
+        : `<span class="text-[10px] font-mono text-slate-400 shrink-0">${escapeHtml(node.id)}</span>`}
+    `;
+    card.appendChild(titleRow);
+
+    if (node.description) {
+      const d = document.createElement('p');
+      d.className = 'text-[11px] text-slate-500 leading-snug mb-1.5 line-clamp-2';
+      d.textContent = node.description;
+      card.appendChild(d);
+    }
+
+    for (let i = 0; i < node.states.length; i++) {
+      const s = node.states[i];
+      const p = marginal[s] ?? 0;
+      const bar = document.createElement('div');
+      bar.className = 'marginal-bar' + (evIdx === i ? ' evidence' : '');
+      bar.dataset.nodeId = node.id;
+      bar.dataset.stateIdx = String(i);
+      bar.innerHTML = `
+        <span class="label">${escapeHtml(s)}</span>
+        <span class="track"><span class="fill" style="width:${(p * 100).toFixed(1)}%"></span></span>
+        <span class="pct">${(p * 100).toFixed(1)}%</span>
+      `;
+      card.appendChild(bar);
+    }
+    list.appendChild(card);
+  }
+  container.appendChild(list);
+}
+
+function section(title) {
+  const wrap = document.createElement('div');
+  wrap.className = 'inspector-section';
+  const h = document.createElement('h3');
+  h.textContent = title;
+  wrap.appendChild(h);
+  return wrap;
+}
+
+function textLine(text) {
+  const d = document.createElement('div');
+  d.className = 'text-xs text-slate-400';
+  d.textContent = text;
+  return d;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  })[c]);
+}
+function escapeAttr(s) { return escapeHtml(s); }
