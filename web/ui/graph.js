@@ -7,8 +7,7 @@ const NODE_H = 92;
 // Monospace avg ~6.6px/char, so (200−16)/6.6 ≈ 28; leave a couple chars of
 // safety margin for wider glyphs (W, M) before ellipsis.
 const TITLE_MAX = 26;
-const BAR_CELLS = 6;
-const STATE_MAX = 12;  // clamp long state names so bar lines don't wrap
+const STATE_MAX = 10;  // clamp long state names so they fit the state column
 
 function buildStyle(t) {
   return [
@@ -21,17 +20,13 @@ function buildStyle(t) {
         'border-color': t.nodeBorder,
         'width': NODE_W,
         'height': NODE_H,
-        'label': 'data(label)',
-        'color': t.nodeText,
-        'font-size': 11,
-        'font-family': 'ui-monospace, SFMono-Regular, Menlo, monospace',
-        'font-weight': 500,
-        'text-valign': 'center',
-        'text-halign': 'center',
-        'text-wrap': 'wrap',
-        'text-max-width': NODE_W - 20,
-        'line-height': 1.3,
-        'padding': 8
+        // Node contents are drawn as an SVG background-image (see nodeSvgDataUrl).
+        // Vector renders crisp at any zoom — no text-rasterization jitter.
+        'background-image': 'data(bg)',
+        'background-fit': 'cover',
+        'background-clip': 'node',
+        'background-image-opacity': 1,
+        'label': ''
       }
     },
     {
@@ -119,6 +114,7 @@ function buildStyle(t) {
 }
 
 export function createGraph(container, { theme, onSelect, onSelectEdge, onEdge, onCycle, onMove }) {
+  let currentTheme = theme;
   const cy = window.cytoscape({
     container,
     wheelSensitivity: 0.2,
@@ -333,20 +329,23 @@ export function createGraph(container, { theme, onSelect, onSelectEdge, onEdge, 
       const desiredNodes = new Set(net.ids());
       const desiredEdges = new Set();
 
+      // Read theme-driven colors once per sync — applyTheme sets CSS vars on :root.
+      const palette = readPalette(currentTheme);
+
       // Add / update nodes.
       for (const id of net.ids()) {
         const n = net.getNode(id);
-        const label = nodeLabel(n, marginals[id], net.evidence.get(id));
+        const bg = nodeSvgDataUrl(n, marginals[id], net.evidence.get(id), palette);
         const pos = net.positions.get(id);
         let node = cy.$id(id);
         if (!node.nonempty()) {
           node = cy.add({
             group: 'nodes',
-            data: { id, label },
+            data: { id, bg },
             position: pos ? { x: pos.x, y: pos.y } : { x: Math.random() * 400, y: Math.random() * 300 }
           });
         } else {
-          node.data('label', label);
+          node.data('bg', bg);
           if (pos && !samePos(node.position(), pos)) node.position(pos);
         }
         if (net.evidence.has(id)) node.addClass('evidence');
@@ -391,44 +390,116 @@ export function createGraph(container, { theme, onSelect, onSelectEdge, onEdge, 
     },
 
     applyTheme(newTheme) {
+      currentTheme = newTheme;
       cy.style().fromJson(buildStyle(newTheme)).update();
+      // Caller must re-run sync() afterwards so node SVGs pick up the new palette.
     }
   };
 }
 
-function nodeLabel(n, marginal, evIdx) {
-  const title = n.name.length > TITLE_MAX ? n.name.slice(0, TITLE_MAX - 1) + '…' : n.name;
-  const lines = [title];
-  if (marginal) {
-    if (evIdx != null) {
-      lines.push('');
-      lines.push(`◉ ${truncState(n.states[evIdx])}`);
-    } else {
-      const entries = Object.entries(marginal);
-      const padLen = Math.min(STATE_MAX, Math.max(...entries.map(([s]) => s.length)));
-      for (const [state, p] of entries) {
-        const pct = (p * 100).toFixed(1).padStart(5) + '%';
-        const bar = miniBar(p, BAR_CELLS);
-        lines.push(`${truncState(state).padEnd(padLen)} ${pct} ${bar}`);
-      }
-    }
-  }
-  return lines.join('\n');
+// Read theme + CSS-custom-property colors once per render. The CSS vars are
+// set on :root by applyTheme() in themes.js, so this picks up theme switches
+// without needing to plumb them through every function.
+function readPalette(theme) {
+  const css = typeof getComputedStyle === 'function'
+    ? getComputedStyle(document.documentElement) : null;
+  const cv = (k, fb) => (css?.getPropertyValue(k).trim() || fb);
+  return {
+    text:      theme.nodeText,
+    muted:     cv('--bar-to', '#64748b'),   // reuse accent-end for % labels
+    barFrom:   cv('--bar-from', '#0ea5e9'),
+    barTo:     cv('--bar-to',   '#6366f1'),
+    barTrack:  cv('--bar-track','#e5e7eb'),
+    evidence:  cv('--evidence', '#f59e0b'),
+    evFrom:    cv('--evidence-bar-from', cv('--evidence', '#f59e0b')),
+    evTo:      cv('--evidence-bar-to',   cv('--evidence', '#f59e0b'))
+  };
 }
 
-function truncState(s) {
-  return s.length > STATE_MAX ? s.slice(0, STATE_MAX - 1) + '…' : s;
+function nodeSvgDataUrl(n, marginal, evIdx, c) {
+  const svg = buildNodeSvg(n, marginal, evIdx, c);
+  return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
 }
 
-function miniBar(p, width) {
-  const blocks = '░▒▓█';
-  const cells = Math.round(p * width * 4);
-  let out = '';
-  for (let i = 0; i < width; i++) {
-    const fill = Math.min(4, Math.max(0, cells - i * 4));
-    out += fill === 0 ? '·' : blocks[fill - 1];
+function buildNodeSvg(n, marginal, evIdx, c) {
+  const W = NODE_W, H = NODE_H;
+  const padX = 10;
+  const titleBaseline = 16;
+  const title = xmlEscape(truncate(n.name, TITLE_MAX));
+  const parts = [];
+
+  // Title
+  parts.push(
+    `<text x="${padX}" y="${titleBaseline}" font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif" font-size="12" font-weight="600" fill="${c.text}">${title}</text>`
+  );
+  // Subtle divider under title
+  parts.push(
+    `<line x1="${padX}" y1="22" x2="${W - padX}" y2="22" stroke="${c.barTrack}" stroke-width="1"/>`
+  );
+
+  const bodyTop = 26;
+  const bodyBot = H - 6;
+
+  if (evIdx != null) {
+    const stateName = xmlEscape(truncate(n.states[evIdx], 20));
+    const midY = (bodyTop + bodyBot) / 2 + 4;
+    parts.push(
+      `<text x="${W / 2}" y="${midY}" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" font-weight="600" fill="${c.evidence}">◉ ${stateName}</text>`
+    );
+    return wrapSvg(W, H, parts.join(''));
   }
-  return out;
+
+  if (!marginal) return wrapSvg(W, H, parts.join(''));
+
+  const entries = Object.entries(marginal);
+  const n_rows = Math.max(1, entries.length);
+  const rowH = Math.max(11, Math.min(16, Math.floor((bodyBot - bodyTop) / n_rows)));
+  const stateColW = 50;
+  const pctColW = 36;
+  const gap = 4;
+  const barX = padX + stateColW + gap + pctColW + gap;
+  const barW = W - barX - padX;
+  const barH = Math.max(5, Math.min(8, rowH - 5));
+
+  // Gradient (id is local to this data: URL SVG, no collision across nodes)
+  parts.push(
+    `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="0">` +
+    `<stop offset="0" stop-color="${c.barFrom}"/>` +
+    `<stop offset="1" stop-color="${c.barTo}"/>` +
+    `</linearGradient></defs>`
+  );
+
+  let y = bodyTop;
+  for (const [state, p] of entries) {
+    const textY = y + rowH - Math.max(3, (rowH - 9) / 2);
+    const barTop = y + (rowH - barH) / 2;
+    const stateName = xmlEscape(truncate(state, STATE_MAX));
+    const pct = (p * 100).toFixed(1) + '%';
+    parts.push(
+      `<text x="${padX}" y="${textY}" font-family="ui-sans-serif,system-ui,sans-serif" font-size="10" fill="${c.text}">${stateName}</text>`,
+      `<text x="${padX + stateColW + gap + pctColW}" y="${textY}" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="10" fill="${c.text}" fill-opacity="0.65">${pct}</text>`,
+      `<rect x="${barX}" y="${barTop.toFixed(2)}" width="${barW}" height="${barH}" rx="${(barH / 2).toFixed(2)}" fill="${c.barTrack}"/>`,
+      `<rect x="${barX}" y="${barTop.toFixed(2)}" width="${(barW * p).toFixed(2)}" height="${barH}" rx="${(barH / 2).toFixed(2)}" fill="url(#g)"/>`
+    );
+    y += rowH;
+  }
+  return wrapSvg(W, H, parts.join(''));
+}
+
+function wrapSvg(w, h, inner) {
+  // Intrinsic size = 3× display size: matches max zoom so rasterization stays
+  // crisp without wasting memory beyond that.
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w * 3}" height="${h * 3}">${inner}</svg>`;
+}
+
+function truncate(s, max) {
+  return s.length > max ? s.slice(0, max - 1) + '…' : s;
+}
+
+function xmlEscape(s) {
+  return String(s).replace(/[<>&"']/g, ch => (
+    { '<':'&lt;', '>':'&gt;', '&':'&amp;', '"':'&quot;', "'":'&apos;' }[ch]
+  ));
 }
 
 function samePos(a, b) {

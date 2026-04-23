@@ -11,8 +11,9 @@
     "dev": "concurrently --kill-others-on-fail --names web,api --prefix-colors cyan,magenta \"vite\" \"node --watch server/index.js\"",
     "dev:web": "vite",
     "dev:api": "node --watch server/index.js",
-    "build": "vite build",
+    "build": "vite build && cp -R examples dist/examples",
     "preview": "vite preview",
+    "start": "npm run build && node server/index.js",
     "test": "node --test test/*.test.js",
     "cli": "node cli/bayes.js"
   },

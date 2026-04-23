@@ -10,7 +10,7 @@ export function provider() { return providerInfo; }
 
 export async function probe() {
   try {
-    const res = await fetch('/api/status', {
+    const res = await fetch('api/status', {
       cache: 'no-store',
       signal: AbortSignal.timeout(1500)
     });
@@ -27,7 +27,7 @@ export async function probe() {
 }
 
 export async function enrichNode({ node, parents }) {
-  const res = await fetch('/api/enrich', {
+  const res = await fetch('api/enrich', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ node, parents })
@@ -41,7 +41,7 @@ export async function enrichNode({ node, parents }) {
 }
 
 export async function suggestStates({ node }) {
-  const res = await fetch('/api/suggest-states', {
+  const res = await fetch('api/suggest-states', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ node })

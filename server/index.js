@@ -12,8 +12,32 @@
 // the AI controls. /api/status is the probe.
 
 import { createServer } from 'node:http';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, createReadStream } from 'node:fs';
+import { stat } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
 import { enrich, enrichAvailable, providerInfo, suggestStates } from './enrich.js';
+
+const DIST_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js':   'application/javascript; charset=utf-8',
+  '.mjs':  'application/javascript; charset=utf-8',
+  '.css':  'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.map':  'application/json; charset=utf-8',
+  '.svg':  'image/svg+xml',
+  '.png':  'image/png',
+  '.jpg':  'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif':  'image/gif',
+  '.webp': 'image/webp',
+  '.ico':  'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2':'font/woff2',
+  '.txt':  'text/plain; charset=utf-8'
+};
 
 loadEnvFile('.env.local');
 loadEnvFile('.env');
@@ -46,6 +70,9 @@ const server = createServer(async (req, res) => {
       const body = await readJSON(req);
       const result = await suggestStates(body);
       return json(res, 200, result);
+    }
+    if ((req.method === 'GET' || req.method === 'HEAD') && !req.url.startsWith('/api/')) {
+      if (await serveStatic(req, res)) return;
     }
     return json(res, 404, { error: 'not found' });
   } catch (e) {
@@ -85,6 +112,36 @@ function readJSON(req) {
     });
     req.on('error', reject);
   });
+}
+
+async function serveStatic(req, res) {
+  let urlPath = req.url.split('?')[0].split('#')[0];
+  try { urlPath = decodeURIComponent(urlPath); } catch { return false; }
+  if (urlPath === '/' || urlPath === '') urlPath = '/index.html';
+
+  const rel = normalize(urlPath).replace(/^(\.\.(\/|\\|$))+/, '');
+  const filePath = join(DIST_DIR, rel);
+  if (filePath !== DIST_DIR && !filePath.startsWith(DIST_DIR + sep)) return false;
+
+  let s;
+  try { s = await stat(filePath); } catch { return false; }
+  if (s.isDirectory()) {
+    const idx = join(filePath, 'index.html');
+    try {
+      const si = await stat(idx);
+      if (!si.isFile()) return false;
+      return streamFile(res, idx, si.size);
+    } catch { return false; }
+  }
+  if (!s.isFile()) return false;
+  return streamFile(res, filePath, s.size);
+}
+
+function streamFile(res, filePath, size) {
+  const type = MIME[extname(filePath).toLowerCase()] ?? 'application/octet-stream';
+  res.writeHead(200, { 'content-type': type, 'content-length': size });
+  createReadStream(filePath).pipe(res);
+  return true;
 }
 
 // Tiny dotenv: KEY=VALUE per line; doesn't overwrite existing process.env.

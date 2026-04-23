@@ -364,6 +364,8 @@ function renderThemeGrid() {
 function setTheme(id) {
   currentTheme = applyTheme(id);
   graph.applyTheme(currentTheme.cy);
+  // Node SVGs bake in palette colors → re-sync so the new theme takes effect.
+  syncGraph();
   localStorage.setItem('bayes:theme:v1', id);
   renderThemeGrid();
 }
