@@ -1,9 +1,9 @@
 // Example networks shipped with the app; fetched from examples/ at runtime.
 // Relative paths so the bundle works from any URL prefix.
 export const EXAMPLES = [
-  { id: 'asia',       name: 'Asia (diagnosis)',       file: 'examples/asia.json' },
-  { id: 'cancer',     name: 'Cancer',                 file: 'examples/cancer.json' },
-  { id: 'earthquake', name: 'Earthquake (Pearl)',     file: 'examples/earthquake.json' }
+  { id: 'asia',          name: 'Diagnosis',              file: 'examples/asia.json' },
+  { id: 'earthquake',    name: 'Earthquake',             file: 'examples/earthquake.json' },
+  { id: 'memory-prices', name: 'Global Memory Prices',   file: 'examples/memory-prices.json' }
 ];
 
 export async function loadExample(id) {

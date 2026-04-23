@@ -10,7 +10,7 @@ import { parse, stringify } from '../lib/io.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const examples = join(__dirname, '..', 'examples');
 
-for (const name of ['asia', 'cancer', 'earthquake']) {
+for (const name of ['asia', 'memory-prices', 'earthquake']) {
   test(`roundtrip: ${name}`, () => {
     const raw = readFileSync(join(examples, `${name}.json`), 'utf8');
     const net = parse(raw);

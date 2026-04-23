@@ -50,8 +50,8 @@ test('Earthquake: P(burglary | john=yes, mary=yes) is the classic Pearl value', 
   assert.ok(close(p.yes, 0.284, 0.005), `got ${p.yes}, expected ~0.284`);
 });
 
-test('Cancer: marginals sum to 1', () => {
-  const net = load('cancer.json');
+test('Memory Prices: marginals sum to 1 across all 13 nodes', () => {
+  const net = load('memory-prices.json');
   for (const id of net.ids()) {
     const p = variableElimination(net, id);
     const sum = Object.values(p).reduce((a, b) => a + b, 0);
