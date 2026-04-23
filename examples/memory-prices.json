@@ -16,7 +16,7 @@
         0.45,
         0.35
       ],
-      "description": "Global demand for AI training + inference compute. Late-2025 baseline skews High; Extreme captures hyperscaler-frenzy scenarios like OpenAI Stargate reportedly consuming ~40% of global DRAM output."
+      "description": "Global demand for AI training + inference compute."
     },
     {
       "id": "trade_tensions",
@@ -341,7 +341,7 @@
         0.18,
         0.8
       ],
-      "description": "DRAM spot price trajectory. Article anchor: ~172% annual DRAM price rise in 2025 under severe supply + high contract lockup + open-ended hyperscaler orders."
+      "description": "DRAM spot price trajectory."
     },
     {
       "id": "nand_price",
@@ -384,7 +384,7 @@
         0.18,
         0.8
       ],
-      "description": "NAND spot price trajectory. Article anchor: 60%+ month-over-month contract price jumps reported Nov 2025."
+      "description": "NAND spot price trajectory."
     },
     {
       "id": "consumer_ram_price",
@@ -451,7 +451,7 @@
         0.18,
         0.8
       ],
-      "description": "Cost squeeze on PC OEMs (Dell, Lenovo, HP). Article anchor: 15-20% cost increases reported in late 2025; Morgan Stanley downgrade on Dell cited memory costs."
+      "description": "Cost squeeze on PC OEMs (Dell, Lenovo, HP)."
     }
   ],
   "evidence": {},

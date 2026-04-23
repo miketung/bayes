@@ -8,7 +8,7 @@
       "states": ["no", "yes"],
       "parents": [],
       "cpt": [0.99, 0.01],
-      "description": "Whether the patient recently travelled to a region where tuberculosis is prevalent. Raises TB risk if yes."
+      "description": "Whether the patient recently travelled to a region where tuberculosis is prevalent."
     },
     {
       "id": "smoke",
@@ -16,7 +16,7 @@
       "states": ["no", "yes"],
       "parents": [],
       "cpt": [0.5, 0.5],
-      "description": "Whether the patient is a smoker. Common risk factor for both lung cancer and bronchitis."
+      "description": "Whether the patient is a smoker."
     },
     {
       "id": "tub",
@@ -24,7 +24,7 @@
       "states": ["no", "yes"],
       "parents": ["asia"],
       "cpt": [0.99, 0.01, 0.95, 0.05],
-      "description": "Whether the patient has tuberculosis. Base rate is low; travel to Asia multiplies risk roughly five-fold."
+      "description": "Whether the patient has tuberculosis."
     },
     {
       "id": "lung",
@@ -32,7 +32,7 @@
       "states": ["no", "yes"],
       "parents": ["smoke"],
       "cpt": [0.99, 0.01, 0.9, 0.1],
-      "description": "Whether the patient has lung cancer. Smokers have roughly 10x the baseline risk."
+      "description": "Whether the patient has lung cancer."
     },
     {
       "id": "bronc",
@@ -40,7 +40,7 @@
       "states": ["no", "yes"],
       "parents": ["smoke"],
       "cpt": [0.7, 0.3, 0.4, 0.6],
-      "description": "Whether the patient has bronchitis. Common in smokers (~60%), still notable among non-smokers (~30%)."
+      "description": "Whether the patient has bronchitis."
     },
     {
       "id": "either",
@@ -48,7 +48,7 @@
       "states": ["no", "yes"],
       "parents": ["tub", "lung"],
       "cpt": [1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
-      "description": "Auxiliary deterministic node: true iff the patient has either tuberculosis or lung cancer. Lets us combine the two causes into a single downstream signal for X-ray and dyspnea."
+      "description": "Auxiliary deterministic node: true iff the patient has either tuberculosis or lung cancer."
     },
     {
       "id": "xray",
@@ -56,7 +56,7 @@
       "states": ["no", "yes"],
       "parents": ["either"],
       "cpt": [0.95, 0.05, 0.02, 0.98],
-      "description": "Whether the chest X-ray comes back positive. 98% sensitive for TB-or-cancer, 5% false-positive rate."
+      "description": "Whether the chest X-ray comes back positive."
     },
     {
       "id": "dysp",
@@ -64,7 +64,7 @@
       "states": ["no", "yes"],
       "parents": ["either", "bronc"],
       "cpt": [0.9, 0.1, 0.2, 0.8, 0.3, 0.7, 0.1, 0.9],
-      "description": "Whether the patient reports shortness of breath. Can stem from TB/cancer, bronchitis, or both; ~10% background rate without any cause."
+      "description": "Whether the patient reports shortness of breath."
     }
   ],
   "evidence": {},
