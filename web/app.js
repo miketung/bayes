@@ -41,6 +41,14 @@ const $algoPickerMobile = document.getElementById('algoPickerMobile');
 const $examplePicker = document.getElementById('examplePicker');
 const $exampleList = document.getElementById('exampleList');
 
+const LS = {
+  net:  'bayes:net:v1',
+  view: 'bayes:view:v1',
+  algo: 'bayes:algo:v1',
+  samples: 'bayes:samples:v1',
+  saves: 'bayes:saves:v1'
+};
+
 // --- theme -----------------------------------------------------------------
 
 // Restore theme from localStorage before anything renders so the first paint
@@ -97,24 +105,77 @@ document.addEventListener('keydown', (e) => {
 
 // --- populate examples -----------------------------------------------------
 
-for (const ex of EXAMPLES) {
-  const opt = document.createElement('option');
-  opt.value = ex.id;
-  opt.textContent = ex.name;
-  $examplePicker?.appendChild(opt);
+function renderExampleDropdowns() {
+  // Top-bar <select>: keep the placeholder, then Examples, then Saved optgroup.
+  if ($examplePicker) {
+    $examplePicker.innerHTML = '<option value="">Examples…</option>';
+    for (const ex of EXAMPLES) {
+      const opt = document.createElement('option');
+      opt.value = `example:${ex.id}`;
+      opt.textContent = ex.name;
+      $examplePicker.appendChild(opt);
+    }
+    const names = listSavedNames();
+    if (names.length) {
+      const group = document.createElement('optgroup');
+      group.label = 'Saved';
+      for (const name of names) {
+        const opt = document.createElement('option');
+        opt.value = `saved:${name}`;
+        opt.textContent = name;
+        group.appendChild(opt);
+      }
+      $examplePicker.appendChild(group);
+    }
+  }
 
-  const btn = document.createElement('button');
-  btn.className = 'btn-ghost text-sm justify-start';
-  btn.textContent = ex.name;
-  btn.addEventListener('click', () => loadExampleIntoApp(ex.id));
-  $exampleList?.appendChild(btn);
+  // Sidebar list: examples first, then saved networks with a × delete button.
+  if ($exampleList) {
+    $exampleList.innerHTML = '';
+    for (const ex of EXAMPLES) {
+      const btn = document.createElement('button');
+      btn.className = 'btn-ghost text-sm justify-start';
+      btn.textContent = ex.name;
+      btn.addEventListener('click', () => loadExampleIntoApp(ex.id));
+      $exampleList.appendChild(btn);
+    }
+    const names = listSavedNames();
+    if (names.length) {
+      const label = document.createElement('div');
+      label.className = 'text-[10px] uppercase tracking-wider font-semibold text-slate-400 mt-2 mb-1 px-1';
+      label.textContent = 'Saved';
+      $exampleList.appendChild(label);
+      for (const name of names) {
+        const row = document.createElement('div');
+        row.className = 'flex items-stretch gap-1';
+        const btn = document.createElement('button');
+        btn.className = 'btn-ghost text-sm justify-start flex-1 truncate';
+        btn.textContent = name;
+        btn.title = name;
+        btn.addEventListener('click', () => loadSavedIntoApp(name));
+        const del = document.createElement('button');
+        del.className = 'btn-ghost text-sm px-2';
+        del.textContent = '×';
+        del.title = `Delete saved "${name}"`;
+        del.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (confirm(`Delete saved network "${name}"?`)) deleteSaved(name);
+        });
+        row.appendChild(btn);
+        row.appendChild(del);
+        $exampleList.appendChild(row);
+      }
+    }
+  }
 }
+renderExampleDropdowns();
 
 $examplePicker?.addEventListener('change', () => {
-  if ($examplePicker.value) {
-    loadExampleIntoApp($examplePicker.value);
-    $examplePicker.value = '';
-  }
+  const v = $examplePicker.value;
+  if (!v) return;
+  $examplePicker.value = '';
+  if (v.startsWith('example:')) loadExampleIntoApp(v.slice('example:'.length));
+  else if (v.startsWith('saved:')) loadSavedIntoApp(v.slice('saved:'.length));
 });
 
 // --- toolbar / top bar -----------------------------------------------------
@@ -133,7 +194,8 @@ function handleAction(action) {
   switch (action) {
     case 'new':       newNetwork(); break;
     case 'load':      $fileInput.click(); break;
-    case 'save':      saveNetwork(); break;
+    case 'save':      saveNetworkToLocal(); break;
+    case 'export':    exportNetwork(); break;
     case 'add-node':  addNodePrompt(); break;
     case 'layout':    autoLayout(); break;
   }
@@ -184,7 +246,7 @@ function newNetwork() {
   toast('New network');
 }
 
-function saveNetwork() {
+function exportNetwork() {
   const blob = new Blob([stringify(net)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -192,6 +254,62 @@ function saveNetwork() {
   document.body.appendChild(a);
   a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 100);
+}
+
+function saveNetworkToLocal() {
+  const suggested = net.name && net.name !== 'untitled' ? net.name : '';
+  const raw = prompt('Save network as:', suggested);
+  if (raw == null) return;
+  const name = raw.trim();
+  if (!name) { toast('Save cancelled: name required', 'warn'); return; }
+  const store = readSaves();
+  if (store[name] && !confirm(`Overwrite saved network "${name}"?`)) return;
+  net.name = name;
+  store[name] = JSON.parse(stringify(net));
+  writeSaves(store);
+  renderExampleDropdowns();
+  $netName.textContent = net.name ? `· ${net.name}` : '';
+  scheduleSave();
+  toast(`Saved "${name}"`);
+}
+
+function loadSavedIntoApp(name) {
+  try {
+    const store = readSaves();
+    const obj = store[name];
+    if (!obj) { toast(`No saved network "${name}"`, 'warn'); return; }
+    net = parse(obj);
+    selectedId = null;
+    afterEdit({ fit: true });
+    toast(`Loaded "${net.name}"`);
+  } catch (e) {
+    toast(`Failed to load saved: ${e.message}`, 'warn');
+  }
+}
+
+function deleteSaved(name) {
+  const store = readSaves();
+  if (!(name in store)) return;
+  delete store[name];
+  writeSaves(store);
+  renderExampleDropdowns();
+  toast(`Deleted saved "${name}"`);
+}
+
+function readSaves() {
+  try {
+    const raw = localStorage.getItem(LS.saves);
+    if (!raw) return {};
+    const obj = JSON.parse(raw);
+    return obj && typeof obj === 'object' ? obj : {};
+  } catch { return {}; }
+}
+function writeSaves(store) {
+  try { localStorage.setItem(LS.saves, JSON.stringify(store)); }
+  catch (_) { /* quota, private mode, etc. */ }
+}
+function listSavedNames() {
+  return Object.keys(readSaves()).sort((a, b) => a.localeCompare(b));
 }
 
 async function loadExampleIntoApp(id) {
@@ -209,14 +327,10 @@ async function loadExampleIntoApp(id) {
 function addNodePrompt() {
   const name = (prompt('Node name:', 'New Variable') || '').trim();
   if (!name) return;
-  const statesRaw = prompt('States (comma-separated):', 'no,yes');
-  if (!statesRaw) return;
-  const states = statesRaw.split(',').map(s => s.trim()).filter(Boolean);
-  if (states.length < 2) { alert('Need at least 2 states.'); return; }
   const id = uniqueIdFromName(name);
   const pos = graph.cy.extent();
   const center = { x: (pos.x1 + pos.x2) / 2, y: (pos.y1 + pos.y2) / 2 };
-  net.addNode({ id, name, states, x: center.x, y: center.y });
+  net.addNode({ id, name, states: ['no', 'yes'], x: center.x, y: center.y });
   selectedId = id;
   afterEdit();
 }
@@ -274,6 +388,24 @@ const inspectorActions = {
   rename:  (id, name) => { net.renameNode(id, name); afterEdit(); },
   setDescription: (id, text) => { net.setDescription(id, text); renderList(); scheduleSave(); },
   clearAiSources: (id) => { net.setAiSources(id, []); afterEdit(); },
+  suggestStates: async (id) => {
+    if (!ai.isAvailable()) { toast('AI backend unavailable', 'warn'); return; }
+    try {
+      const n = net.getNode(id);
+      const t0 = performance.now();
+      const res = await ai.suggestStates({ node: { name: n.name, description: n.description } });
+      const ms = Math.round(performance.now() - t0);
+      if (!Array.isArray(res?.states) || res.states.length < 2) {
+        toast('AI returned no usable states', 'warn');
+        return;
+      }
+      net.setStates(id, res.states);
+      afterEdit();
+      toast(`AI states: [${res.states.join(', ')}] · ${ms} ms`);
+    } catch (e) {
+      toast(`AI states failed: ${e.message}`, 'warn');
+    }
+  },
   enrich: async (id) => {
     if (!ai.isAvailable()) { toast('AI backend unavailable', 'warn'); return; }
     try {
@@ -393,13 +525,6 @@ function afterEdit({ fit = false } = {}) {
 // The whole app state (net + view prefs) is kept in localStorage so Vite's
 // HMR full-reload, a browser refresh, or a closed tab doesn't wipe the user's
 // in-progress work.  Saves are debounced so rapid edits don't thrash IO.
-
-const LS = {
-  net:  'bayes:net:v1',
-  view: 'bayes:view:v1',
-  algo: 'bayes:algo:v1',
-  samples: 'bayes:samples:v1'
-};
 
 let saveTimer = null;
 function scheduleSave() {

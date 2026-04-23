@@ -60,6 +60,83 @@ export function renderInspector(container, { net, selectedId, marginals, actions
   // scrollHeight requires a layout pass; defer so it reads correctly on first paint.
   requestAnimationFrame(autosize);
 
+  // States editor (placed right below description so state-filling is visually
+  // separated from the Belief / CPT / sources block below).
+  let statesAiBtn = null;
+  if (aiAvailable()) {
+    statesAiBtn = document.createElement('button');
+    statesAiBtn.className = 'ai-btn';
+    statesAiBtn.title = 'Suggest discrete states from the node name';
+    statesAiBtn.innerHTML = '<span>✦</span> AI fill';
+    statesAiBtn.addEventListener('click', () => {
+      statesAiBtn.disabled = true;
+      statesAiBtn.classList.add('busy');
+      statesAiBtn.innerHTML = '<span>thinking…</span>';
+      Promise.resolve(actions.suggestStates(selectedId))
+        .finally(() => { statesAiBtn.classList.remove('busy'); statesAiBtn.disabled = false; });
+    });
+  }
+  const statesSec = section('States', statesAiBtn);
+  const focusStateInput = (idx) => {
+    const inputs = container.querySelectorAll('.state-row input');
+    const target = inputs[idx];
+    if (target) { target.focus(); target.select(); }
+  };
+  for (let i = 0; i < node.states.length; i++) {
+    const row = document.createElement('div');
+    row.className = 'state-row';
+    row.innerHTML = `
+      <input type="text" value="${escapeAttr(node.states[i])}" />
+      <button title="Remove" ${node.states.length <= 2 ? 'disabled' : ''}>✕</button>
+    `;
+    const inp = row.querySelector('input');
+    const rmBtn = row.querySelector('button');
+    inp.addEventListener('focus', () => inp.select());
+    inp.addEventListener('change', () => {
+      const next = [...node.states];
+      next[i] = inp.value.trim() || node.states[i];
+      actions.setStates(selectedId, next);
+    });
+    inp.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const typed = inp.value.trim() || node.states[i];
+      const next = [...node.states];
+      let targetIdx = i + 1;
+      let mutated = false;
+      if (typed !== next[i]) { next[i] = typed; mutated = true; }
+      if (i === node.states.length - 1) {
+        let k = 1;
+        while (next.includes(`state${k}`)) k++;
+        next.push(`state${k}`);
+        targetIdx = next.length - 1;
+        mutated = true;
+      }
+      if (mutated) {
+        actions.setStates(selectedId, next);
+        requestAnimationFrame(() => focusStateInput(targetIdx));
+      } else {
+        focusStateInput(targetIdx);
+      }
+    });
+    rmBtn.addEventListener('click', () => {
+      if (node.states.length <= 2) return;
+      const next = node.states.filter((_, j) => j !== i);
+      actions.setStates(selectedId, next);
+    });
+    statesSec.appendChild(row);
+  }
+  const addState = document.createElement('button');
+  addState.className = 'btn-ghost text-xs mt-1';
+  addState.textContent = '+ Add state';
+  addState.addEventListener('click', () => {
+    let i = 1;
+    while (node.states.includes(`state${i}`)) i++;
+    actions.setStates(selectedId, [...node.states, `state${i}`]);
+  });
+  statesSec.appendChild(addState);
+  container.appendChild(statesSec);
+
   // Posterior / marginal — with optional AI fill button.
   let aiBtn = null;
   if (aiAvailable()) {
@@ -118,40 +195,6 @@ export function renderInspector(container, { net, selectedId, marginals, actions
   evRow.appendChild(clr);
   evSec.appendChild(evRow);
   container.appendChild(evSec);
-
-  // States editor
-  const statesSec = section('States');
-  for (let i = 0; i < node.states.length; i++) {
-    const row = document.createElement('div');
-    row.className = 'state-row';
-    row.innerHTML = `
-      <input type="text" value="${escapeAttr(node.states[i])}" />
-      <button title="Remove" ${node.states.length <= 2 ? 'disabled' : ''}>✕</button>
-    `;
-    const inp = row.querySelector('input');
-    const rmBtn = row.querySelector('button');
-    inp.addEventListener('change', () => {
-      const next = [...node.states];
-      next[i] = inp.value.trim() || node.states[i];
-      actions.setStates(selectedId, next);
-    });
-    rmBtn.addEventListener('click', () => {
-      if (node.states.length <= 2) return;
-      const next = node.states.filter((_, j) => j !== i);
-      actions.setStates(selectedId, next);
-    });
-    statesSec.appendChild(row);
-  }
-  const addState = document.createElement('button');
-  addState.className = 'btn-ghost text-xs mt-1';
-  addState.textContent = '+ Add state';
-  addState.addEventListener('click', () => {
-    let i = 1;
-    while (node.states.includes(`state${i}`)) i++;
-    actions.setStates(selectedId, [...node.states, `state${i}`]);
-  });
-  statesSec.appendChild(addState);
-  container.appendChild(statesSec);
 
   // CPT
   const cptSec = section(node.parents.length ? `Conditional probability — P(${node.id} | ${node.parents.join(', ')})` : `Prior — P(${node.id})`);

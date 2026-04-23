@@ -7,8 +7,8 @@ const NODE_H = 92;
 // Monospace avg ~6.6px/char, so (200−16)/6.6 ≈ 28; leave a couple chars of
 // safety margin for wider glyphs (W, M) before ellipsis.
 const TITLE_MAX = 26;
-const BAR_CELLS = 8;
-const STATE_MAX = 10;  // clamp long state names so bar lines don't wrap
+const BAR_CELLS = 6;
+const STATE_MAX = 12;  // clamp long state names so bar lines don't wrap
 
 function buildStyle(t) {
   return [
@@ -175,6 +175,12 @@ export function createGraph(container, { theme, onSelect, onSelectEdge, onEdge, 
       const h = cy.getElementById(HANDLE_ID);
       if (h.nonempty()) h.position(handleOffset(hoverNode));
     }
+  });
+
+  // Clear the handle if its host node is removed (e.g. deleted from the
+  // inspector while hovered — no mouseout would fire in that case).
+  cy.on('remove', 'node', (evt) => {
+    if (hoverNode && evt.target.id() === hoverNode.id()) hideHandle();
   });
 
   cy.on('mouseover', 'node', (evt) => {

@@ -39,3 +39,17 @@ export async function enrichNode({ node, parents }) {
   }
   return payload;
 }
+
+export async function suggestStates({ node }) {
+  const res = await fetch('/api/suggest-states', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ node })
+  });
+  let payload;
+  try { payload = await res.json(); } catch { payload = null; }
+  if (!res.ok) {
+    throw new Error(payload?.error ?? `HTTP ${res.status}`);
+  }
+  return payload;
+}

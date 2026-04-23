@@ -21,10 +21,93 @@ const DEFAULT_MODEL = 'gpt-5.4-mini';
 export function openaiProvider() {
   return {
     id: 'openai',
-    available: () => !!process.env.OPENAI_API_KEY,
-    model:     () => process.env.BAYES_MODEL || DEFAULT_MODEL,
+    available:     () => !!process.env.OPENAI_API_KEY,
+    model:         () => process.env.BAYES_MODEL || DEFAULT_MODEL,
     search,
+    suggestStates,
   };
+}
+
+async function suggestStates({ node }) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error('OPENAI_API_KEY not set');
+  const base  = (process.env.OPENAI_API_BASE || DEFAULT_BASE).replace(/\/+$/, '');
+  const model = process.env.BAYES_MODEL || DEFAULT_MODEL;
+
+  const body = {
+    model,
+    tools: [{ type: 'web_search' }],
+    tool_choice: 'auto',
+    instructions: STATES_SYSTEM_PROMPT,
+    input: buildStatesPrompt(node)
+  };
+
+  const res = await fetch(`${base}/responses`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type':  'application/json'
+    },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`OpenAI API ${res.status}: ${text.slice(0, 500)}`);
+  }
+  const data = await res.json();
+  const textOut = extractText(data);
+  const parsed = extractJSON(textOut);
+  if (!parsed) throw new Error(`could not parse JSON from model output:\n${textOut.slice(0, 500)}`);
+  return normalizeStates(parsed);
+}
+
+const STATES_SYSTEM_PROMPT = `You are a modeler picking discrete states for a Bayesian network node.
+Given a node name (and optional description), return the popular values
+this variable takes — the common answers to "what is <node name>?".
+
+Keep the set compact — ≤ 4 states total — and use each state's real
+canonical name (do not abbreviate to save space; the renderer handles
+truncation). Match one of five patterns:
+
+1. Binary proposition ("Rain today", "Has cancer", "Success") → ["no", "yes"].
+2. Fixed enumeration (day of week, month, gender, blood type, compass
+   direction) → the canonical set in its natural order, coarsened to ≤ 4
+   when longer (weekday/weekend, quarters, seasons, M/F/other).
+3. Entity-type categorical (brands, products, people, places, tech) →
+   the top popular instances + "other", canonical capitalized names,
+   ≤ 4 total. Use web_search to rank by current popularity / market share.
+4. Ordinal condition/quality (weather, severity, size) → levels
+   low → high, ≤ 4 total.
+5. Quantitative with range buckets (age, income, blood pressure, latency,
+   temperature) → buckets at domain-conventional cut points, low → high,
+   ≤ 4 total. Prefer combined labels like "child (0-17)", or pure ranges
+   "<$30k" when there is no semantic name. Use web_search for canonical thresholds.
+
+Skip web_search for patterns 1, 2, 4. States must be mutually exclusive;
+add "other" when the value space has a long tail.
+
+Return ONLY a JSON object in a \`\`\`json ... \`\`\` code block:
+{ "states": [...], "reasoning": "1 sentence, noting pattern and whether search was used" }`;
+
+function buildStatesPrompt(node) {
+  const lines = [`Node name: ${node.name ?? node.id ?? 'Unknown'}`];
+  if (node.description) lines.push(`Description: ${node.description}`);
+  return lines.join('\n');
+}
+
+function normalizeStates(raw) {
+  if (!Array.isArray(raw?.states)) throw new Error('model did not return a states array');
+  const seen = new Set();
+  const states = [];
+  for (const s of raw.states) {
+    const name = String(s ?? '').trim();
+    if (!name) continue;
+    if (seen.has(name)) continue;
+    seen.add(name);
+    states.push(name);
+  }
+  if (states.length < 2) throw new Error('model returned fewer than 2 usable states');
+  return { states: states.slice(0, 8), reasoning: String(raw.reasoning ?? '') };
 }
 
 async function search({ node, parents }) {
@@ -38,7 +121,15 @@ async function search({ node, parents }) {
     tools: [{ type: 'web_search' }],
     tool_choice: 'auto',
     instructions: SYSTEM_PROMPT,
-    input: buildUserPrompt(node, parents)
+    input: buildUserPrompt(node, parents),
+    text: {
+      format: {
+        type: 'json_schema',
+        name: 'bayes_enrich',
+        schema: buildEnrichSchema(node, parents),
+        strict: true
+      }
+    }
   };
 
   const res = await fetch(`${base}/responses`, {
@@ -58,6 +149,62 @@ async function search({ node, parents }) {
   const parsed = extractJSON(textOut);
   if (!parsed) throw new Error(`could not parse JSON from model output:\n${textOut.slice(0, 500)}`);
   return normalizeResult(parsed, node, parents);
+}
+
+// Build a strict JSON schema for the enrichment response. This is passed to
+// the Responses API via `text.format`, which enforces shape at the API
+// level — including the exact CPT length — so we no longer have to rely on
+// the model to count rows correctly.
+function buildEnrichSchema(node, parents) {
+  const sourceItem = {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      title:        { type: 'string' },
+      url:          { type: 'string' },
+      excerpt:      { type: 'string' },
+      highlight:    { type: 'string' },
+      polarity:     { type: 'string', enum: ['positive', 'negative'] },
+      weight:       { type: 'number', minimum: 0, maximum: 1 },
+      affectsState: { type: 'string', enum: [...node.states] }
+    },
+    required: ['title', 'url', 'excerpt', 'highlight', 'polarity', 'weight', 'affectsState']
+  };
+  if (parents?.length) {
+    const expectedLen = parents.reduce((a, p) => a * p.states.length, 1) * node.states.length;
+    return {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        type:      { type: 'string', enum: ['cpt'] },
+        cpt:       {
+          type: 'array',
+          items: { type: 'number', minimum: 0, maximum: 1 },
+          minItems: expectedLen,
+          maxItems: expectedLen
+        },
+        sources:   { type: 'array', items: sourceItem },
+        reasoning: { type: 'string' }
+      },
+      required: ['type', 'cpt', 'sources', 'reasoning']
+    };
+  }
+  return {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      type:      { type: 'string', enum: ['marginal'] },
+      marginal:  {
+        type: 'array',
+        items: { type: 'number', minimum: 0, maximum: 1 },
+        minItems: node.states.length,
+        maxItems: node.states.length
+      },
+      sources:   { type: 'array', items: sourceItem },
+      reasoning: { type: 'string' }
+    },
+    required: ['type', 'marginal', 'sources', 'reasoning']
+  };
 }
 
 const SYSTEM_PROMPT = `You are a calibration expert for Bayesian networks. You receive a node from a
@@ -102,25 +249,16 @@ nodes. Your job:
    ordering; each row is a distribution over the node's own states and must
    sum to 1). Values must be in [0, 1].
 
-Return ONLY a JSON object inside a \`\`\`json ... \`\`\` code block, no prose
-around it.
+The JSON shape is enforced by a response schema — you do not need to wrap
+it in a code block. For no-parent (root) nodes the object has:
 
-Schema for no-parent (root) nodes:
-{
-  "type": "marginal",
-  "marginal": { "<state name>": <prob>, ... },
-  "sources": [
-    { "title": "...", "url": "https://...",
-      "excerpt": "... with the <mark>key phrase</mark> marked ...",
-      "highlight": "key phrase",
-      "polarity": "positive" | "negative", "weight": 0.0-1.0,
-      "affectsState": "<state name>" }
-  ],
-  "reasoning": "1-3 sentence synthesis"
-}
+  type:      "marginal"
+  marginal:  array of N numbers aligned with the node's state order
+  sources:   array of { title, url, excerpt, highlight, polarity, weight, affectsState }
+  reasoning: "1-3 sentence synthesis"
 
-Schema for nodes with parents: same except "type" is "cpt" and you include
-"parents" + "cpt" (flat row-major) instead of "marginal".
+For nodes with parents, swap "marginal" for "cpt" (flat row-major array)
+and set "type" to "cpt".
 
 Be calibrated: if evidence is weak or inconclusive, produce probabilities near
 the prior rather than near 0 or 1. Avoid collapsing rows to certainty unless
@@ -135,24 +273,26 @@ function buildUserPrompt(node, parents) {
   lines.push(`  states:      [${node.states.join(', ')}]`);
 
   if (parents?.length) {
+    const rows = enumerateRows(parents);
+    const expectedLen = rows.length * node.states.length;
     lines.push('');
     lines.push('Parents (independent variables that condition this node):');
     for (const p of parents) {
       lines.push(`- ${p.id} "${p.name ?? p.id}" — states [${p.states.join(', ')}]` +
         (p.description ? `\n    ${p.description}` : ''));
     }
-    // Explicit row ordering for the CPT to remove any ambiguity.
     lines.push('');
-    lines.push('Your CPT must be a flat row-major array in this row order');
-    lines.push(`(${parents.map(p => p.id).join(' as most-significant → ')} least-significant):`);
-    const rows = enumerateRows(parents);
+    lines.push(`Return \`cpt\` as a flat row-major array of ${expectedLen} numbers`);
+    lines.push(`(${rows.length} rows × ${node.states.length} cols). Row order`);
+    lines.push(`(${parents.map(p => p.id).join(' most-significant → ')} least-significant):`);
     for (let r = 0; r < rows.length; r++) {
       lines.push(`  row ${r}: ${rows[r].map((s, i) => `${parents[i].id}=${s}`).join(', ')}`);
     }
-    lines.push(`Each row has ${node.states.length} numbers (one per state of ${node.id}), summing to 1.`);
+    lines.push(`Each row is ${node.states.length} numbers in the order [${node.states.join(', ')}], summing to 1.`);
   } else {
     lines.push('');
-    lines.push('No parents. Produce a marginal distribution over the states above.');
+    lines.push(`Return \`marginal\` as an array of ${node.states.length} numbers`);
+    lines.push(`in the order [${node.states.join(', ')}], summing to 1.`);
   }
   lines.push('');
   lines.push('Search the web for current evidence. Cite every source you use.');
@@ -207,10 +347,16 @@ function normalizeResult(raw, node, parents) {
     const parentCards = parents.map(p => p.states.length);
     const rows = parentCards.reduce((a, b) => a * b, 1);
     const expected = rows * rowSize;
-    if (!Array.isArray(raw.cpt) || raw.cpt.length !== expected) {
-      throw new Error(`model returned CPT of length ${raw.cpt?.length ?? 'n/a'}, expected ${expected}`);
+    // Auto-repair: the most common bad shape is a nested 2-D array
+    // (`[[0.3, 0.7], [0.5, 0.5], ...]`). Deep-flatten and re-check.
+    let flat = raw.cpt;
+    if (Array.isArray(flat) && flat.length !== expected && flat.some(Array.isArray)) {
+      flat = flat.flat(Infinity);
     }
-    const cpt = raw.cpt.map(v => clamp01(Number(v)));
+    if (!Array.isArray(flat) || flat.length !== expected) {
+      throw new Error(`model returned CPT of length ${flat?.length ?? 'n/a'}, expected ${expected}`);
+    }
+    const cpt = flat.map(v => clamp01(Number(v)));
     // Normalize rows defensively so we don't reject small model rounding errors.
     for (let r = 0; r < rows; r++) {
       let s = 0;
@@ -219,9 +365,19 @@ function normalizeResult(raw, node, parents) {
     }
     return { type: 'cpt', cpt, sources, reasoning: raw.reasoning ?? '' };
   }
-  // marginal
+  // marginal: prefer the array-aligned-with-states form (what the schema
+  // enforces), but fall back to the legacy object-keyed-by-state form.
   const dist = {};
-  for (const s of node.states) dist[s] = clamp01(Number(raw.marginal?.[s] ?? 0));
+  const m = raw.marginal;
+  if (Array.isArray(m)) {
+    for (let i = 0; i < node.states.length; i++) {
+      dist[node.states[i]] = clamp01(Number(m[i] ?? 0));
+    }
+  } else if (m && typeof m === 'object') {
+    for (const s of node.states) dist[s] = clamp01(Number(m[s] ?? 0));
+  } else {
+    for (const s of node.states) dist[s] = 0;
+  }
   let sum = 0;
   for (const s of node.states) sum += dist[s];
   if (sum > 0) for (const s of node.states) dist[s] /= sum;

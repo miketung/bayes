@@ -14,6 +14,17 @@ export function providerInfo() {
   } catch { return { id: null, model: null, available: false }; }
 }
 
+export async function suggestStates({ node }) {
+  if (!node || typeof node !== 'object') throw new Error('missing node');
+  if (!node.name && !node.id) throw new Error('node.name or node.id required');
+  const provider = getProvider();
+  if (!provider.available()) throw new Error('provider not configured');
+  if (typeof provider.suggestStates !== 'function') {
+    throw new Error(`provider "${provider.id}" does not support state suggestion`);
+  }
+  return provider.suggestStates({ node });
+}
+
 export async function enrich({ node, parents = [] }) {
   if (!node || typeof node !== 'object') throw new Error('missing node');
   if (!node.id) throw new Error('node.id required');

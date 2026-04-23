@@ -13,7 +13,7 @@
 
 import { createServer } from 'node:http';
 import { existsSync, readFileSync } from 'node:fs';
-import { enrich, enrichAvailable, providerInfo } from './enrich.js';
+import { enrich, enrichAvailable, providerInfo, suggestStates } from './enrich.js';
 
 loadEnvFile('.env.local');
 loadEnvFile('.env');
@@ -37,6 +37,14 @@ const server = createServer(async (req, res) => {
       }
       const body = await readJSON(req);
       const result = await enrich(body);
+      return json(res, 200, result);
+    }
+    if (req.method === 'POST' && req.url === '/api/suggest-states') {
+      if (!enrichAvailable()) {
+        return json(res, 503, { error: 'AI disabled — set OPENAI_API_KEY in .env' });
+      }
+      const body = await readJSON(req);
+      const result = await suggestStates(body);
       return json(res, 200, result);
     }
     return json(res, 404, { error: 'not found' });
