@@ -546,5 +546,16 @@ function toast(text, kind = '') {
   });
 })();
 
-// Keep Cytoscape happy when the viewport resizes.
-window.addEventListener('resize', () => graph.cy.resize());
+// Keep Cytoscape happy when the viewport resizes, and re-fit so the graph
+// rescales to the new canvas rather than getting clipped or stranded.
+let resizeRaf = 0;
+const handleResize = () => {
+  if (resizeRaf) cancelAnimationFrame(resizeRaf);
+  resizeRaf = requestAnimationFrame(() => {
+    resizeRaf = 0;
+    graph.cy.resize();
+    graph.fit();
+  });
+};
+window.addEventListener('resize', handleResize);
+new ResizeObserver(handleResize).observe($cy);
