@@ -16,10 +16,38 @@ Everything shares one `package.json` and the same library code.
 ## Quick start
 
 ```bash
-npm install       # installs vite
-npm run dev       # opens the web app at http://localhost:5173
+npm install       # installs vite + concurrently
+npm run dev       # runs the web app at http://localhost:5173 + the optional AI API on :3001
 npm test          # runs the inference / IO test suite
 ```
+
+`npm run dev` launches two processes side-by-side: Vite for the static SPA and
+a tiny Node HTTP server for the (optional) AI enrichment endpoint. You can also
+run them separately: `npm run dev:web` and `npm run dev:api`. The static app
+works fine on its own — the AI button only appears when the API server is
+reachable and an API key is configured.
+
+## Optional AI enrichment
+
+If you'd like the "✦ AI fill" button in the node inspector to search the web
+and fill in node probabilities and citations automatically, copy `.env.example`
+to `.env` and set `OPENAI_API_KEY`:
+
+```bash
+cp .env.example .env
+echo "OPENAI_API_KEY=sk-..." >> .env
+npm run dev
+```
+
+Override the base URL (`OPENAI_API_BASE`) to point at any OpenAI-compatible
+endpoint that supports the Responses API + web_search tool. Model is
+configurable via `BAYES_MODEL` (default: `gpt-5.4-mini`).
+
+When you click **✦ AI fill** in the inspector, the backend runs the
+`web_search` tool through the LLM, synthesizes a marginal (for root nodes) or
+a full CPT (for nodes with parents), and attaches the cited sources to the
+node. Sources are persisted with the network JSON so you can see them again
+next time you load the file.
 
 ## Using the CLI
 

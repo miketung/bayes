@@ -88,6 +88,25 @@ test('setStates preserves CPTs on pure rename (same cardinality)', () => {
   assert.deepEqual(net.getNode('b').cpt, [0.9, 0.1, 0.2, 0.8]);
 });
 
+test('aiSources round-trip and clear', () => {
+  const net = new BayesNet();
+  net.addNode({ id: 'rain', states: ['no','yes'] });
+  net.setAiSources('rain', [
+    { title: 'NOAA', url: 'https://noaa.gov/x', polarity: 'positive', weight: 0.9, excerpt: 'Rain likely.', affectsState: 'yes' },
+    { title: 'Wikipedia', url: 'https://wiki/x', polarity: 'negative', weight: 0.4 }
+  ]);
+  const again = parse(stringify(net));
+  const sources = again.getNode('rain').aiSources;
+  assert.equal(sources.length, 2);
+  assert.equal(sources[0].title, 'NOAA');
+  assert.equal(sources[0].weight, 0.9);
+  assert.equal(sources[1].polarity, 'negative');
+  // Omitted when empty.
+  net.setAiSources('rain', []);
+  const obj = net.toJSON();
+  assert.ok(!('aiSources' in obj.nodes.find(n => n.id === 'rain')));
+});
+
 test('description is preserved through JSON roundtrip; empty clears', () => {
   const net = new BayesNet();
   net.addNode({ id: 'rain', states: ['no','yes'], description: 'overnight precipitation' });

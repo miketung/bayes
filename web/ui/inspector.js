@@ -5,6 +5,7 @@
 // inference and re-render.
 
 import { renderCPT } from './cpt-editor.js';
+import { isAvailable as aiAvailable } from './ai.js';
 
 export function renderInspector(container, { net, selectedId, marginals, actions }) {
   if (!selectedId) {
@@ -59,8 +60,22 @@ export function renderInspector(container, { net, selectedId, marginals, actions
   // scrollHeight requires a layout pass; defer so it reads correctly on first paint.
   requestAnimationFrame(autosize);
 
-  // Posterior / marginal
-  const marginalSec = section('Belief');
+  // Posterior / marginal — with optional AI fill button.
+  let aiBtn = null;
+  if (aiAvailable()) {
+    aiBtn = document.createElement('button');
+    aiBtn.className = 'ai-btn';
+    aiBtn.title = 'Search the web and fill probabilities from evidence';
+    aiBtn.innerHTML = '<span>✦</span> AI fill';
+    aiBtn.addEventListener('click', () => {
+      aiBtn.disabled = true;
+      aiBtn.classList.add('busy');
+      aiBtn.innerHTML = '<span>thinking…</span>';
+      Promise.resolve(actions.enrich(selectedId))
+        .finally(() => { aiBtn.classList.remove('busy'); aiBtn.disabled = false; });
+    });
+  }
+  const marginalSec = section('Belief', aiBtn);
   if (marginal && Object.keys(marginal).length) {
     for (let i = 0; i < node.states.length; i++) {
       const s = node.states[i];
@@ -144,6 +159,20 @@ export function renderInspector(container, { net, selectedId, marginals, actions
   renderCPT(cptDiv, net, selectedId, (cpt) => actions.setCPT(selectedId, cpt));
   cptSec.appendChild(cptDiv);
   container.appendChild(cptSec);
+
+  // AI sources (if any are attached to this node)
+  if (Array.isArray(node.aiSources) && node.aiSources.length) {
+    const clearBtn = document.createElement('button');
+    clearBtn.className = 'btn-ghost text-[11px] text-slate-400';
+    clearBtn.textContent = 'clear';
+    clearBtn.title = 'Remove attached sources';
+    clearBtn.addEventListener('click', () => actions.clearAiSources(selectedId));
+    const sourcesSec = section('AI sources', clearBtn);
+    for (const s of node.aiSources) {
+      sourcesSec.appendChild(renderSourceRow(s));
+    }
+    container.appendChild(sourcesSec);
+  }
 
   // Parent management
   const parentSec = section('Parents');
@@ -254,12 +283,20 @@ function renderSummary(container, { net, marginals, actions }) {
   container.appendChild(list);
 }
 
-function section(title) {
+function section(title, trailing = null) {
   const wrap = document.createElement('div');
   wrap.className = 'inspector-section';
   const h = document.createElement('h3');
   h.textContent = title;
-  wrap.appendChild(h);
+  if (trailing) {
+    const row = document.createElement('div');
+    row.className = 'section-row';
+    row.appendChild(h);
+    row.appendChild(trailing);
+    wrap.appendChild(row);
+  } else {
+    wrap.appendChild(h);
+  }
   return wrap;
 }
 
@@ -268,6 +305,74 @@ function textLine(text) {
   d.className = 'text-xs text-slate-400';
   d.textContent = text;
   return d;
+}
+
+function renderSourceRow(s) {
+  const row = document.createElement('div');
+  row.className = 'source-row';
+  let host = '';
+  try { host = new URL(s.url).hostname.replace(/^www\./, ''); } catch { host = ''; }
+  const left = document.createElement('div');
+  left.className = 'min-w-0';
+  left.innerHTML = `
+    <a href="${escapeAttr(s.url)}" target="_blank" rel="noopener noreferrer" class="title block hover:text-indigo-600 hover:underline">${escapeHtml(s.title || s.url)}</a>
+    <div class="host">${escapeHtml(host)}</div>
+    ${s.excerpt ? `<div class="text-[11px] text-slate-500 mt-1 leading-snug">${renderExcerpt(s.excerpt, s.highlight)}</div>` : ''}
+  `;
+
+  const badge = document.createElement('span');
+  const neg = s.polarity === 'negative';
+  const verb = neg ? 'against' : 'supports';
+  const state = s.affectsState ? escapeHtml(s.affectsState) : '';
+  const weightStr = (s.weight ?? 0).toFixed(2);
+  badge.className = 'badge ' + (neg ? 'neg' : 'pos');
+  badge.title = state
+    ? `${verb} ${s.affectsState} with weight ${weightStr}`
+    : `${verb} this node with weight ${weightStr}`;
+  badge.textContent = state
+    ? `${verb} ${s.affectsState}  ·  ${weightStr}`
+    : `${verb}  ·  ${weightStr}`;
+
+  row.appendChild(left);
+  row.appendChild(badge);
+  return row;
+}
+
+// Convert an excerpt to safe HTML with the pivotal phrase bolded.
+// Three tiers:
+//   1) <mark>...</mark> XML tags in the excerpt → <strong>...</strong>
+//      (we stash them as placeholders, escape everything else, then restore
+//      as real tags — so arbitrary HTML from the web/model is still escaped).
+//   2) otherwise, if a separate `highlight` string appears as a substring
+//      of the excerpt, bold that substring (case-insensitive).
+//   3) otherwise, render as-is (no bold).
+function renderExcerpt(text, highlight) {
+  let working = String(text);
+  const OPEN  = 'SOB';
+  const CLOSE = 'EOB';
+  working = working
+    .replace(/<mark>/gi, OPEN)
+    .replace(/<\/mark>/gi, CLOSE);
+  const hadMarks = working.includes(OPEN);
+
+  // Escape whatever's left (covers any raw HTML the model or source leaked).
+  let escaped = escapeHtml(working);
+
+  if (hadMarks) {
+    return escaped
+      .split(OPEN).join('<strong class="text-slate-900">')
+      .split(CLOSE).join('</strong>');
+  }
+  if (highlight) {
+    const h = escapeHtml(highlight);
+    const idx = escaped.toLowerCase().indexOf(h.toLowerCase());
+    if (idx >= 0) {
+      return escaped.slice(0, idx)
+        + `<strong class="text-slate-900">${escaped.slice(idx, idx + h.length)}</strong>`
+        + escaped.slice(idx + h.length);
+    }
+  }
+  return escaped;
 }
 
 function escapeHtml(s) {

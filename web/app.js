@@ -9,6 +9,7 @@ import { createGraph } from './ui/graph.js';
 import { renderInspector } from './ui/inspector.js';
 import { renderListView } from './ui/list-view.js';
 import { EXAMPLES, loadExample } from './ui/examples.js';
+import * as ai from './ui/ai.js';
 
 // --- global state ----------------------------------------------------------
 
@@ -237,6 +238,38 @@ function uniqueIdFromName(name) {
 const inspectorActions = {
   rename:  (id, name) => { net.renameNode(id, name); afterEdit(); },
   setDescription: (id, text) => { net.setDescription(id, text); renderList(); scheduleSave(); },
+  clearAiSources: (id) => { net.setAiSources(id, []); afterEdit(); },
+  enrich: async (id) => {
+    if (!ai.isAvailable()) { toast('AI backend unavailable', 'warn'); return; }
+    try {
+      const n = net.getNode(id);
+      const parents = n.parents.map(pid => {
+        const p = net.getNode(pid);
+        return { id: p.id, name: p.name, description: p.description, states: [...p.states] };
+      });
+      const payload = {
+        node: {
+          id: n.id, name: n.name, description: n.description,
+          states: [...n.states]
+        },
+        parents
+      };
+      const t0 = performance.now();
+      const result = await ai.enrichNode(payload);
+      const ms = Math.round(performance.now() - t0);
+
+      // Apply the CPT (marginal is equivalent to a no-parent CPT).
+      let cpt;
+      if (result.type === 'cpt') cpt = result.cpt;
+      else cpt = n.states.map(s => result.marginal[s] ?? 0);
+      net.setCPT(id, cpt, { normalize: true });
+      net.setAiSources(id, result.sources ?? []);
+      afterEdit();
+      toast(`AI: ${result.sources?.length ?? 0} sources · ${ms} ms`);
+    } catch (e) {
+      toast(`AI enrich failed: ${e.message}`, 'warn');
+    }
+  },
   setStates: (id, states) => {
     try { net.setStates(id, states); afterEdit(); }
     catch (e) { toast(e.message, 'warn'); renderInspectorSafe(); }
@@ -405,7 +438,8 @@ function updateBeliefs(container) {
 
 function updateStatus() {
   const edgeCount = [...net.nodes.values()].reduce((n, v) => n + v.parents.length, 0);
-  $statusInfo.textContent = `${net.size} node${net.size === 1 ? '' : 's'}, ${edgeCount} edge${edgeCount === 1 ? '' : 's'}`;
+  const aiTag = ai.isAvailable() ? `  ·  ✦ AI (${ai.provider()?.model ?? 'on'})` : '';
+  $statusInfo.textContent = `${net.size} node${net.size === 1 ? '' : 's'}, ${edgeCount} edge${edgeCount === 1 ? '' : 's'}${aiTag}`;
   const algoLabel = algorithm === 've' ? 'VE' : `LW (${samples.toLocaleString()})`;
   $statusTiming.textContent = net.size ? `${algoLabel} · ${lastInferMs.toFixed(1)} ms` : '';
 }
@@ -462,6 +496,16 @@ function toast(text, kind = '') {
   if (view !== 'graph') setView(view);
 
   afterEdit({ fit: !restored });    // only auto-fit on fresh-load; respect saved positions otherwise
+
+  // Probe the optional AI backend; if reachable, re-render the inspector so
+  // the AI button appears.  If not, stay silent — the app is fully functional
+  // without it.
+  ai.probe().then(on => {
+    if (on) {
+      renderInspectorSafe();
+      updateStatus();
+    }
+  });
 })();
 
 // Keep Cytoscape happy when the viewport resizes.
