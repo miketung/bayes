@@ -218,14 +218,17 @@ The web_search tool is available but is OPTIONAL and must be skipped for
 most nodes. Before calling it, ask yourself: would a search return a
 specific fact I don't already know that would shift these probabilities?
 
-DO search when the node refers to something with concrete public data:
-  * a specific real-world event, entity, product, person, organization,
-    statute, or claim ("US Invades Kharg Island", "Apple Vision Pro sales",
-    "Iran nuclear deal signed")
-  * a current metric that changes over time ("US unemployment rate",
-    "Bitcoin price above 100k in 2026", "seasonal flu activity")
-  * a domain where canonical thresholds / base rates exist in published
-    sources ("patient smoker prevalence by country")
+DO search ONLY when the node resolves to an identifiable query — it must
+pin down enough specifics that a search engine could return a directly
+relevant article with a concrete fact:
+  * named entity + event ("US Invades Kharg Island", "Apple Vision Pro
+    discontinued", "Iran nuclear deal 2026")
+  * time-varying metric with a specific scope ("US unemployment rate
+    Q1 2026", "Bitcoin price April 2026", "Fed raises rates at April
+    2026 FOMC meeting")
+  * canonical threshold/base rate with a published source ("adult
+    smoker prevalence in the US 2025", "aspirin MI reduction in men
+    over 55")
 
 DO NOT search — reason from first principles and domain knowledge — when
 the node is any of:
@@ -233,18 +236,32 @@ the node is any of:
     "Alarm", "Mary Calls", "Sprinkler", "Widget Fails", "Node X")
   * a generic everyday event with stable common-sense base rates
     ("coin flip heads", "die shows 6", "rain today")
+  * a generic weather / daily-life event WITHOUT a specified location
+    AND date. "Weather Tomorrow" by itself → skip (generic, no location).
+    "Rain in Seattle on 2026-04-24" → OK to search.
   * a purely hypothetical proposition with no external data ("if A then B
     happens")
   * a conditional relationship already determined by model structure
     (the CPT for "alarm given burglary AND earthquake" is a modeling
     judgment, not a news search)
-  * so vague the web can't help ("Weather", "Patient", "Event")
+  * short, underspecified names with no description that clarifies scope
+    ("Failure", "Success", "Event", "Patient", "Weather") — if a one-word
+    name could apply to a thousand different scenarios, it is abstract,
+    not searchable. Skip search and return a reasoned uncertain prior.
+
+Anti-padding rules (these apply even if you already called web_search):
+  * Do NOT cite a source that does not provide a specific, dated,
+    relevant fact that materially shifts your estimate.
+  * Do NOT cite generic hub pages like "Weather for United States",
+    "Wikipedia: Failure", "FDA Reliability Overview", calendar/index
+    pages, or top-level homepages — these are stand-ins for common
+    knowledge.
+  * Do NOT cite the same URL or near-duplicate URLs multiple times.
+  * If you searched and found nothing of the above quality, return
+    sources: [] and note that in the reasoning.
 
 When in doubt, lean toward NOT searching. An empty sources array is a
-correct, expected outcome — do NOT invent citations, do NOT cite
-Wikipedia to fill space, do NOT include a page just because you
-happened to look at it. Only cite sources that materially shifted
-your probability estimates.
+correct, expected outcome.
 
 ===== STEP 1: produce the distribution =====
 
@@ -427,7 +444,7 @@ function normalizeResult(raw, node, parents) {
 function normalizeSources(sources, node) {
   if (!Array.isArray(sources)) return [];
   const states = new Set(node.states);
-  return sources.map(s => {
+  const mapped = sources.map(s => {
     const out = {
       title:        String(s.title ?? '').slice(0, 300),
       url:          String(s.url ?? ''),
@@ -475,7 +492,44 @@ function normalizeSources(sources, node) {
     if (excerpt) out.excerpt = excerpt;
     if (highlight) out.highlight = highlight;
     return out;
-  }).filter(s => s.url.startsWith('http'));
+  });
+
+  // Quality filter: drop obvious padding. The prompt already discourages
+  // this, but the model is trained to lean on tools so we enforce defense
+  // in depth server-side.
+  const seenUrls = new Set();
+  const seenHostTitle = new Set();
+  const hostCounts = new Map();
+  const out = [];
+  for (const s of mapped) {
+    if (!s.url.startsWith('http')) continue;
+    // Exact URL dedup
+    if (seenUrls.has(s.url)) continue;
+    let host = '', pathDepth = 0;
+    try {
+      const u = new URL(s.url);
+      host = u.hostname.replace(/^www\./, '');
+      pathDepth = u.pathname.replace(/\/+$/, '').split('/').filter(Boolean).length;
+    } catch { continue; }
+    // (host, title) dedup — kills the "3x Weather for United States" case
+    const ht = host + '||' + s.title.toLowerCase().trim();
+    if (seenHostTitle.has(ht)) continue;
+    // Throttle same-hostname repetition (>2 per response is usually padding)
+    const hc = hostCounts.get(host) ?? 0;
+    if (hc >= 2) continue;
+    // Drop very-shallow "homepage" / hub URLs — anything with < 2 path
+    // segments is almost always a section index, not evidence.
+    if (pathDepth < 2 && !/\.(html?|pdf)$/i.test(s.url)) continue;
+    // Drop generic "overview" / "guide" titles unless the URL has depth
+    // suggesting a specific article.
+    if (/(\b(overview|guide|introduction|about|home|index)\b|— an overview|- an overview)/i.test(s.title) && pathDepth < 3) continue;
+
+    seenUrls.add(s.url);
+    seenHostTitle.add(ht);
+    hostCounts.set(host, hc + 1);
+    out.push(s);
+  }
+  return out;
 }
 
 function clamp01(x) {

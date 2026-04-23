@@ -142,7 +142,7 @@ export function renderInspector(container, { net, selectedId, marginals, actions
   if (aiAvailable()) {
     aiBtn = document.createElement('button');
     aiBtn.className = 'ai-btn';
-    aiBtn.title = 'Search the web and fill probabilities from evidence';
+    aiBtn.title = 'Fill probabilities from evidence and reasoning';
     aiBtn.innerHTML = '<span>✦</span> AI fill';
     aiBtn.addEventListener('click', () => {
       aiBtn.disabled = true;
