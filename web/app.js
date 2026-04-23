@@ -10,6 +10,7 @@ import { renderInspector } from './ui/inspector.js';
 import { renderListView } from './ui/list-view.js';
 import { EXAMPLES, loadExample } from './ui/examples.js';
 import * as ai from './ui/ai.js';
+import { THEMES, getTheme, applyTheme, currentThemeId } from './ui/themes.js';
 
 // --- global state ----------------------------------------------------------
 
@@ -40,9 +41,19 @@ const $algoPickerMobile = document.getElementById('algoPickerMobile');
 const $examplePicker = document.getElementById('examplePicker');
 const $exampleList = document.getElementById('exampleList');
 
+// --- theme -----------------------------------------------------------------
+
+// Restore theme from localStorage before anything renders so the first paint
+// already uses the right accent colors.
+const savedTheme = localStorage.getItem('bayes:theme:v1');
+let currentTheme = applyTheme(
+  THEMES.some(t => t.id === savedTheme) ? savedTheme : 'aurora'
+);
+
 // --- graph instance --------------------------------------------------------
 
 const graph = createGraph($cy, {
+  theme: currentTheme.cy,
   onSelect: (id) => { selectedId = id; renderInspectorSafe(); showInspectorSheet(!!id); graph.select(id); renderList(); },
   onSelectEdge: (_p, _c) => {
     // Tapping an edge clears the node inspector so keyboard delete is unambiguous.
@@ -219,6 +230,30 @@ function autoLayout() {
   });
   toast('Auto-layout applied');
 }
+
+// Populate theme swatch grid.
+const $themeGrid = document.getElementById('themeGrid');
+function renderThemeGrid() {
+  if (!$themeGrid) return;
+  $themeGrid.innerHTML = '';
+  for (const t of THEMES) {
+    const btn = document.createElement('button');
+    btn.className = 'theme-chip' + (t.id === currentThemeId() ? ' active' : '');
+    btn.title = t.name;
+    const gradient = `linear-gradient(90deg, ${t.swatch.join(', ')})`;
+    btn.innerHTML = `<span class="swatch" style="background:${gradient}"></span><span class="name">${t.name}</span>`;
+    btn.addEventListener('click', () => setTheme(t.id));
+    $themeGrid.appendChild(btn);
+  }
+}
+
+function setTheme(id) {
+  currentTheme = applyTheme(id);
+  graph.applyTheme(currentTheme.cy);
+  localStorage.setItem('bayes:theme:v1', id);
+  renderThemeGrid();
+}
+renderThemeGrid();
 
 // Slugify a freeform name into a safe unique node id.
 // e.g. "Visit to Asia!" → "visit_to_asia"; "42" → "42"; collisions → "_2", "_3", …
@@ -495,7 +530,10 @@ function toast(text, kind = '') {
   $samplesInput.classList.toggle('hidden', algorithm !== 'lw');
   if (view !== 'graph') setView(view);
 
-  afterEdit({ fit: !restored });    // only auto-fit on fresh-load; respect saved positions otherwise
+  // Always fit on initial boot so the graph is visible regardless of whether
+  // we restored from localStorage or loaded a fresh example. Saved node
+  // positions are still honored — we only reset the camera viewport.
+  afterEdit({ fit: true });
 
   // Probe the optional AI backend; if reachable, re-render the inspector so
   // the AI button appears.  If not, stay silent — the app is fully functional

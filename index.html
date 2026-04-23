@@ -38,7 +38,7 @@
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-5 h-5"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
       </button>
       <div class="flex items-center gap-2 shrink-0">
-        <div class="w-6 h-6 rounded-full bg-gradient-to-br from-sky-500 via-indigo-500 to-emerald-500"></div>
+        <div class="brand-dot w-6 h-6 rounded-full"></div>
         <span class="font-semibold tracking-tight">Bayes</span>
       </div>
       <span id="netName" class="text-sm text-slate-500 truncate"></span>
@@ -108,6 +108,11 @@
               <button data-view="list"  class="btn-ghost view-toggle">List</button>
             </div>
             <button data-action="layout" class="md:hidden w-full btn-ghost mt-1">Auto-layout</button>
+          </div>
+
+          <div>
+            <div class="text-[10px] uppercase tracking-wider font-semibold text-slate-400 mb-1 px-1">Theme</div>
+            <div id="themeGrid" class="grid grid-cols-2 gap-1"></div>
           </div>
 
           <div class="pt-2 border-t border-slate-100">

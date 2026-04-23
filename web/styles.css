@@ -1,10 +1,22 @@
 @import url('https://rsms.me/inter/inter.css');
 
+/* Theme tokens. Overridden at runtime by themes.js → applyTheme.
+   Values here are the Aurora defaults so first paint (before JS runs)
+   already has coherent colors. */
 :root {
-  --node-fill: #eef2ff;
-  --node-ev: #fde68a;
-  --node-border: #6366f1;
-  --edge: #94a3b8;
+  --accent-from:  #0ea5e9;
+  --accent-to:    #6366f1;
+  --ai-from:      #8b5cf6;
+  --ai-to:        #ec4899;
+  --bar-from:     #0ea5e9;
+  --bar-to:       #6366f1;
+  --bar-track:    #f1f5f9;
+  --evidence:            #f59e0b;
+  --evidence-bg:         #fffbeb;
+  --evidence-pill-bg:    #fef3c7;
+  --evidence-pill-text:  #92400e;
+  --evidence-bar-from:   #f59e0b;
+  --evidence-bar-to:     #ea580c;
 }
 
 html, body { font-feature-settings: "cv11", "ss01"; }
@@ -14,7 +26,7 @@ html, body { font-feature-settings: "cv11", "ss01"; }
    the class is directly used — so we supply them here as real CSS). */
 
 .btn-primary {
-  background: linear-gradient(135deg, #0ea5e9, #6366f1);
+  background: linear-gradient(135deg, var(--accent-from), var(--accent-to));
   color: white;
   padding: 8px 12px;
   border-radius: 8px;
@@ -45,6 +57,30 @@ html, body { font-feature-settings: "cv11", "ss01"; }
   background: #e0e7ff;
   color: #4338ca;
 }
+
+.theme-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid #e2e8f0;
+  background: white;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #334155;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.1s;
+}
+.theme-chip:hover { border-color: #94a3b8; }
+.theme-chip.active { border-color: currentColor; box-shadow: 0 0 0 2px rgba(99,102,241,0.18); }
+.theme-chip .swatch {
+  width: 26px;
+  height: 10px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+.theme-chip .name { flex: 1; }
 
 .toast {
   pointer-events: auto;
@@ -92,7 +128,7 @@ html, body { font-feature-settings: "cv11", "ss01"; }
   font-size: 11px;
   font-weight: 600;
   border-radius: 999px;
-  background: linear-gradient(135deg, #8b5cf6, #ec4899);
+  background: linear-gradient(135deg, var(--ai-from), var(--ai-to));
   color: white;
   border: none;
   cursor: pointer;
@@ -228,7 +264,7 @@ html, body { font-feature-settings: "cv11", "ss01"; }
   flex: 1;
   display: block;
   height: 8px;
-  background: #f1f5f9;
+  background: var(--bar-track);
   border-radius: 999px;
   overflow: hidden;
   min-width: 0;
@@ -236,12 +272,12 @@ html, body { font-feature-settings: "cv11", "ss01"; }
 .marginal-bar .fill {
   display: block;
   height: 100%;
-  background: linear-gradient(90deg, #0ea5e9, #6366f1);
+  background: linear-gradient(90deg, var(--bar-from), var(--bar-to));
   border-radius: 999px;
   transition: width 0.18s ease-out;
 }
 .marginal-bar.evidence .fill {
-  background: linear-gradient(90deg, #f59e0b, #ea580c);
+  background: linear-gradient(90deg, var(--evidence-bar-from), var(--evidence-bar-to));
 }
 .marginal-bar .pct {
   flex: 0 0 44px;
@@ -250,6 +286,112 @@ html, body { font-feature-settings: "cv11", "ss01"; }
   font-variant-numeric: tabular-nums;
 }
 
+/* Brand pill in the top-left. Uses the active theme's accent gradient so
+   it visually anchors the rest of the UI (buttons, bars, …). */
+.brand-dot {
+  background: linear-gradient(135deg, var(--accent-from), var(--accent-to));
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12), inset 0 0 0 1px rgba(255,255,255,0.25);
+}
+
 /* Cytoscape node labels — base size tweak */
 #cy { cursor: grab; }
 #cy.dragging { cursor: grabbing; }
+
+/* -------------------------------------------------------------------------
+   Midnight (dark) chrome overrides.
+   The app's HTML pulls Tailwind utility classes for surfaces, text, and
+   borders.  Rather than duplicate every class with a dark: variant, we
+   override the specific utilities we care about when the theme is active.
+   -------------------------------------------------------------------------*/
+html[data-theme="midnight"] body { background: #0b1220; color: #e2e8f0; }
+
+/* Core surfaces */
+html[data-theme="midnight"] .bg-white,
+html[data-theme="midnight"] #inspector,
+html[data-theme="midnight"] #toolbar,
+html[data-theme="midnight"] main.bg-white,
+html[data-theme="midnight"] footer.bg-white { background-color: #0f172a; }
+html[data-theme="midnight"] header.bg-white\/80 { background-color: rgba(15,23,42,0.85); }
+
+/* Borders */
+html[data-theme="midnight"] .border-slate-200,
+html[data-theme="midnight"] .border-slate-100 { border-color: #1f2b44; }
+
+/* Text */
+html[data-theme="midnight"] .text-slate-900 { color: #f1f5f9; }
+html[data-theme="midnight"] .text-slate-800 { color: #e2e8f0; }
+html[data-theme="midnight"] .text-slate-700 { color: #cbd5e1; }
+html[data-theme="midnight"] .text-slate-600 { color: #a3b3cb; }
+html[data-theme="midnight"] .text-slate-500 { color: #94a3b8; }
+html[data-theme="midnight"] .text-slate-400 { color: #64748b; }
+html[data-theme="midnight"] .text-slate-300 { color: #475569; }
+
+/* Hover / active backgrounds used by .btn-ghost and cards */
+html[data-theme="midnight"] .btn-ghost { color: #cbd5e1; }
+html[data-theme="midnight"] .btn-ghost:hover { background: #1e293b; }
+html[data-theme="midnight"] .btn-ghost.active,
+html[data-theme="midnight"] .view-toggle.active { background: #1e3a5f; color: #bfdbfe; }
+
+/* Selection / hover tints */
+html[data-theme="midnight"] .hover\:bg-slate-100:hover { background-color: #1e293b; }
+html[data-theme="midnight"] .hover\:bg-slate-50\/60:hover { background-color: rgba(30,41,59,0.6); }
+html[data-theme="midnight"] .hover\:border-indigo-300:hover { border-color: #6366f1; }
+html[data-theme="midnight"] .hover\:border-slate-100:hover { border-color: #1f2b44; }
+
+/* Selected card */
+html[data-theme="midnight"] .border-indigo-400 { border-color: #818cf8; }
+html[data-theme="midnight"] .bg-indigo-50\/50 { background-color: rgba(49,46,129,0.25); }
+
+/* Amber evidence pill on dark */
+html[data-theme="midnight"] .bg-amber-100 { background-color: #78350f; }
+html[data-theme="midnight"] .text-amber-800 { color: #fde68a; }
+
+/* Form controls */
+html[data-theme="midnight"] input[type="text"],
+html[data-theme="midnight"] input[type="number"],
+html[data-theme="midnight"] textarea,
+html[data-theme="midnight"] select {
+  background-color: #111a2e;
+  color: #e2e8f0;
+  border-color: #1f2b44;
+}
+html[data-theme="midnight"] input[type="text"]::placeholder,
+html[data-theme="midnight"] textarea::placeholder {
+  color: #475569;
+}
+
+/* Theme chips */
+html[data-theme="midnight"] .theme-chip {
+  background: #111a2e;
+  border-color: #1f2b44;
+  color: #cbd5e1;
+}
+html[data-theme="midnight"] .theme-chip:hover { border-color: #475569; }
+
+/* CPT editor */
+html[data-theme="midnight"] .cpt-table th { background: #111a2e; color: #94a3b8; }
+html[data-theme="midnight"] .cpt-table th,
+html[data-theme="midnight"] .cpt-table td { border-color: #1f2b44; }
+html[data-theme="midnight"] .cpt-table td.parent-cell { color: #cbd5e1; }
+html[data-theme="midnight"] .cpt-table tr.bad-row { background: #3f1d1d; }
+html[data-theme="midnight"] .cpt-table tr.bad-row td { color: #fca5a5; }
+html[data-theme="midnight"] .cpt-table input:focus { background: #1e3a5f; border-color: #6366f1; }
+
+/* AI source row separators + bold highlight */
+html[data-theme="midnight"] .source-row { border-color: #1f2b44; }
+html[data-theme="midnight"] .source-row .title { color: #cbd5e1; }
+html[data-theme="midnight"] .source-row .title:hover { color: #818cf8; }
+html[data-theme="midnight"] .source-row strong { color: #f1f5f9; background: rgba(129,140,248,0.15); padding: 0 2px; border-radius: 2px; }
+html[data-theme="midnight"] .source-row .badge.pos { background: #064e3b; color: #6ee7b7; }
+html[data-theme="midnight"] .source-row .badge.neg { background: #450a0a; color: #fca5a5; }
+
+/* Status bar text */
+html[data-theme="midnight"] footer { color: #94a3b8; }
+
+/* Toasts — already dark, keep warn variant readable */
+html[data-theme="midnight"] .toast { background: #1e293b; }
+
+/* Scrollbars on WebKit for a touch less jarring look */
+html[data-theme="midnight"] ::-webkit-scrollbar { width: 10px; height: 10px; }
+html[data-theme="midnight"] ::-webkit-scrollbar-thumb { background: #1f2b44; border-radius: 999px; }
+html[data-theme="midnight"] ::-webkit-scrollbar-track { background: transparent; }

@@ -1,122 +1,130 @@
 // Cytoscape wiring: render the BayesNet as a DAG with drag-to-connect,
 // evidence highlighting, and inline marginal bars on each node.
 
-const NODE_W = 160;
-const NODE_H = 88;
+const NODE_W = 200;
+const NODE_H = 92;
+// Title truncation fits within NODE_W−2·padding at the monospace font size.
+// Monospace avg ~6.6px/char, so (200−16)/6.6 ≈ 28; leave a couple chars of
+// safety margin for wider glyphs (W, M) before ellipsis.
+const TITLE_MAX = 26;
+const BAR_CELLS = 8;
+const STATE_MAX = 10;  // clamp long state names so bar lines don't wrap
 
-export function createGraph(container, { onSelect, onSelectEdge, onEdge, onCycle, onMove }) {
+function buildStyle(t) {
+  return [
+    {
+      selector: 'node',
+      style: {
+        'shape': 'round-rectangle',
+        'background-color': t.nodeFill,
+        'border-width': 1.5,
+        'border-color': t.nodeBorder,
+        'width': NODE_W,
+        'height': NODE_H,
+        'label': 'data(label)',
+        'color': t.nodeText,
+        'font-size': 11,
+        'font-family': 'ui-monospace, SFMono-Regular, Menlo, monospace',
+        'font-weight': 500,
+        'text-valign': 'center',
+        'text-halign': 'center',
+        'text-wrap': 'wrap',
+        'text-max-width': NODE_W - 20,
+        'line-height': 1.3,
+        'padding': 8
+      }
+    },
+    {
+      selector: 'node:selected',
+      style: {
+        'border-color': t.nodeSelected,
+        'border-width': 2
+      }
+    },
+    {
+      selector: 'node.evidence',
+      style: {
+        'border-color': t.evidenceBorder,
+        'border-width': 3,
+        'background-color': t.evidenceFill
+      }
+    },
+    {
+      selector: 'edge',
+      style: {
+        'width': 1.6,
+        'line-color': t.edge,
+        'target-arrow-color': t.edge,
+        'target-arrow-shape': 'triangle',
+        'curve-style': 'bezier',
+        'arrow-scale': 1.1
+      }
+    },
+    {
+      selector: 'edge:selected',
+      style: {
+        'line-color': t.selectedEdge,
+        'target-arrow-color': t.selectedEdge,
+        'width': 2.2
+      }
+    },
+    {
+      selector: 'node.handle',
+      style: {
+        'background-color': t.handle,
+        'border-color': '#ffffff',
+        'border-width': 2,
+        'width': 18,
+        'height': 18,
+        'shape': 'ellipse',
+        'label': '+',
+        'color': '#ffffff',
+        'font-size': 14,
+        'font-weight': 700,
+        'text-valign': 'center',
+        'text-halign': 'center',
+        'events': 'yes',
+        'z-index': 999
+      }
+    },
+    {
+      selector: 'node.ghost',
+      style: {
+        'opacity': 0,
+        'width': 1,
+        'height': 1,
+        'events': 'no'
+      }
+    },
+    {
+      selector: 'edge.ghost-edge',
+      style: {
+        'line-color': t.ghost,
+        'target-arrow-color': t.ghost,
+        'line-style': 'dashed',
+        'width': 2,
+        'opacity': 0.8,
+        'events': 'no'
+      }
+    },
+    {
+      selector: 'node.drop-target',
+      style: {
+        'border-color': t.dropTarget,
+        'border-width': 3,
+        'background-color': t.dropTargetBg
+      }
+    }
+  ];
+}
+
+export function createGraph(container, { theme, onSelect, onSelectEdge, onEdge, onCycle, onMove }) {
   const cy = window.cytoscape({
     container,
     wheelSensitivity: 0.2,
     minZoom: 0.2,
     maxZoom: 3,
-    style: [
-      {
-        selector: 'node',
-        style: {
-          'shape': 'round-rectangle',
-          'background-color': '#ffffff',
-          'border-width': 1.5,
-          'border-color': '#cbd5e1',
-          'width': NODE_W,
-          'height': NODE_H,
-          'label': 'data(label)',
-          'color': '#0f172a',
-          'font-size': 11,
-          'font-family': 'ui-monospace, SFMono-Regular, Menlo, monospace',
-          'font-weight': 500,
-          'text-valign': 'center',
-          'text-halign': 'center',
-          'text-wrap': 'wrap',
-          'text-max-width': NODE_W - 20,
-          'line-height': 1.3,
-          'padding': 8
-        }
-      },
-      {
-        selector: 'node:selected',
-        style: {
-          'border-color': '#6366f1',
-          'border-width': 2,
-          'box-shadow': '0 4px 12px rgba(99,102,241,0.25)'
-        }
-      },
-      {
-        selector: 'node.evidence',
-        style: {
-          'border-color': '#f59e0b',
-          'border-width': 3,
-          'background-color': '#fffbeb'
-        }
-      },
-      {
-        selector: 'edge',
-        style: {
-          'width': 1.6,
-          'line-color': '#94a3b8',
-          'target-arrow-color': '#94a3b8',
-          'target-arrow-shape': 'triangle',
-          'curve-style': 'bezier',
-          'arrow-scale': 1.1
-        }
-      },
-      {
-        selector: 'edge:selected',
-        style: {
-          'line-color': '#6366f1',
-          'target-arrow-color': '#6366f1',
-          'width': 2.2
-        }
-      },
-      // Drag-to-connect handle + ghost edge.
-      {
-        selector: 'node.handle',
-        style: {
-          'background-color': '#6366f1',
-          'border-color': '#ffffff',
-          'border-width': 2,
-          'width': 18,
-          'height': 18,
-          'shape': 'ellipse',
-          'label': '+',
-          'color': '#ffffff',
-          'font-size': 14,
-          'font-weight': 700,
-          'text-valign': 'center',
-          'text-halign': 'center',
-          'events': 'yes',
-          'z-index': 999
-        }
-      },
-      {
-        selector: 'node.ghost',
-        style: {
-          'opacity': 0,
-          'width': 1,
-          'height': 1,
-          'events': 'no'
-        }
-      },
-      {
-        selector: 'edge.ghost-edge',
-        style: {
-          'line-color': '#6366f1',
-          'target-arrow-color': '#6366f1',
-          'line-style': 'dashed',
-          'width': 2,
-          'opacity': 0.8,
-          'events': 'no'
-        }
-      },
-      {
-        selector: 'node.drop-target',
-        style: {
-          'border-color': '#10b981',
-          'border-width': 3,
-          'background-color': '#ecfdf5'
-        }
-      }
-    ],
+    style: buildStyle(theme),
     layout: { name: 'preset' }
   });
 
@@ -374,28 +382,36 @@ export function createGraph(container, { onSelect, onSelectEdge, onEdge, onCycle
 
     fit() {
       cy.fit(undefined, 40);
+    },
+
+    applyTheme(newTheme) {
+      cy.style().fromJson(buildStyle(newTheme)).update();
     }
   };
 }
 
 function nodeLabel(n, marginal, evIdx) {
-  const title = n.name.length > 18 ? n.name.slice(0, 17) + '…' : n.name;
+  const title = n.name.length > TITLE_MAX ? n.name.slice(0, TITLE_MAX - 1) + '…' : n.name;
   const lines = [title];
   if (marginal) {
     if (evIdx != null) {
       lines.push('');
-      lines.push(`◉ ${n.states[evIdx]}`);
+      lines.push(`◉ ${truncState(n.states[evIdx])}`);
     } else {
       const entries = Object.entries(marginal);
-      const maxStateLen = Math.max(...entries.map(([s]) => s.length));
+      const padLen = Math.min(STATE_MAX, Math.max(...entries.map(([s]) => s.length)));
       for (const [state, p] of entries) {
         const pct = (p * 100).toFixed(1).padStart(5) + '%';
-        const bar = miniBar(p, 8);
-        lines.push(`${state.padEnd(maxStateLen)} ${pct} ${bar}`);
+        const bar = miniBar(p, BAR_CELLS);
+        lines.push(`${truncState(state).padEnd(padLen)} ${pct} ${bar}`);
       }
     }
   }
   return lines.join('\n');
+}
+
+function truncState(s) {
+  return s.length > STATE_MAX ? s.slice(0, STATE_MAX - 1) + '…' : s;
 }
 
 function miniBar(p, width) {
