@@ -6,9 +6,9 @@
       "id": "ai_demand",
       "name": "AI Demand",
       "states": [
-        "Moderate",
-        "High",
-        "Extreme"
+        "<$350B",
+        "$350-550B",
+        ">$550B"
       ],
       "parents": [],
       "cpt": [
@@ -16,15 +16,15 @@
         0.45,
         0.35
       ],
-      "description": "Global demand for AI training + inference compute."
+      "description": "Trailing-4-quarter combined capex of MSFT, AMZN, GOOGL, META, ORCL (USD billions)."
     },
     {
       "id": "trade_tensions",
-      "name": "Trade Tensions",
+      "name": "US-China Trade Tensions",
       "states": [
-        "Low",
-        "Elevated",
-        "Severe"
+        "<5/yr",
+        "5-20/yr",
+        ">20/yr"
       ],
       "parents": [],
       "cpt": [
@@ -32,29 +32,29 @@
         0.5,
         0.3
       ],
-      "description": "US–China and allied export-control friction affecting memory fab equipment, substrates, and finished-goods shipments."
+      "description": "Trailing-12-month count of BIS Entity List additions in the semiconductor sector (proxy for US-China chip trade tension)."
     },
     {
       "id": "upstream_materials",
-      "name": "Upstream Materials",
+      "name": "Upstream Materials Lead Time",
       "states": [
-        "Adequate",
-        "Constrained"
+        "<12 wk",
+        "≥12 wk"
       ],
       "parents": [],
       "cpt": [
         0.45,
         0.55
       ],
-      "description": "Availability of silicon wafers, photoresists, HBM substrates, and TSV-related inputs. Constrained = meaningful queueing in the supply chain."
+      "description": "Median quoted lead time for BT-class low-CTE glass cloth used in advanced packaging."
     },
     {
       "id": "hbm_allocation",
-      "name": "HBM Allocation",
+      "name": "HBM Share of DRAM",
       "states": [
-        "Low",
-        "Medium",
-        "High"
+        "<15%",
+        "15-25%",
+        ">25%"
       ],
       "parents": [
         "ai_demand"
@@ -70,14 +70,14 @@
         0.25,
         0.7
       ],
-      "description": "Share of DRAM fab capacity diverted to HBM for AI accelerators. High allocation is the primary mechanism by which AI demand squeezes conventional DRAM."
+      "description": "HBM wafer inputs as a percentage of total DRAM wafer inputs across SK Hynix, Samsung, and Micron."
     },
     {
       "id": "nand_retirement",
-      "name": "NAND Retirement",
+      "name": "Legacy NAND Retirement",
       "states": [
-        "Gradual",
-        "Accelerated"
+        "≥-5% YoY",
+        "<-5% YoY"
       ],
       "parents": [
         "ai_demand"
@@ -90,15 +90,15 @@
         0.2,
         0.8
       ],
-      "description": "Pace at which older NAND process nodes are retired in favor of AI-oriented enterprise SSD capacity. Accelerated retirement tightens consumer NAND supply."
+      "description": "YoY change in wafer inputs at NAND nodes with ≤176 layers."
     },
     {
       "id": "hyperscaler_orders",
-      "name": "Hyperscaler Orders",
+      "name": "Hyperscaler Order Ratio",
       "states": [
-        "Normal",
-        "Aggressive",
-        "Open-ended"
+        "<1.2×",
+        "1.2-1.8×",
+        ">1.8×"
       ],
       "parents": [
         "ai_demand"
@@ -114,15 +114,15 @@
         0.3,
         0.65
       ],
-      "description": "Order posture from hyperscalers (Azure, AWS, GCP, Meta, Oracle). \"Open-ended\" = \"as much as you can make\" purchase commitments, which lock up supply and force spot buyers to compete for scraps."
+      "description": "Ratio of hyperscaler multi-year memory contracts announced in the trailing 6 months to the trailing 2-year average."
     },
     {
       "id": "dram_supply",
-      "name": "DRAM Supply",
+      "name": "DRAM Inventory",
       "states": [
-        "Adequate",
-        "Tight",
-        "Shortage"
+        ">10 wk",
+        "6-10 wk",
+        "<6 wk"
       ],
       "parents": [
         "hbm_allocation",
@@ -185,15 +185,15 @@
         0.18,
         0.8
       ],
-      "description": "Net availability of conventional DRAM on the market. HBM diversion is the dominant driver; trade frictions and upstream constraints stack on top."
+      "description": "Combined DRAM supplier inventory in weeks of shipments."
     },
     {
       "id": "nand_supply",
-      "name": "NAND Supply",
+      "name": "NAND Inventory",
       "states": [
-        "Adequate",
-        "Tight",
-        "Shortage"
+        ">12 wk",
+        "8-12 wk",
+        "<8 wk"
       ],
       "parents": [
         "nand_retirement",
@@ -219,15 +219,15 @@
         0.18,
         0.8
       ],
-      "description": "Net availability of consumer/client NAND. Legacy-node retirement is primary; trade tensions amplify."
+      "description": "Combined NAND supplier inventory in weeks of shipments."
     },
     {
       "id": "contract_lockup",
       "name": "Contract Lockup",
       "states": [
-        "Low",
-        "Medium",
-        "High"
+        "<30%",
+        "30-50%",
+        ">50%"
       ],
       "parents": [
         "hyperscaler_orders"
@@ -243,15 +243,15 @@
         0.35,
         0.6
       ],
-      "description": "Fraction of fab output locked up in long-term take-or-pay contracts, leaving little available for spot buyers."
+      "description": "Share of forward-year DRAM output committed under fixed multi-year contracts."
     },
     {
       "id": "dram_price",
-      "name": "DRAM Price",
+      "name": "DRAM Price YoY",
       "states": [
-        "Stable",
-        "Rising",
-        "Skyrocketing"
+        "±10%",
+        "+10-50%",
+        ">+50%"
       ],
       "parents": [
         "dram_supply",
@@ -341,15 +341,15 @@
         0.18,
         0.8
       ],
-      "description": "DRAM spot price trajectory."
+      "description": "YoY change in the DDR5 16Gb (2Gx8) 4800 contract price benchmark at quarter close."
     },
     {
       "id": "nand_price",
-      "name": "NAND Price",
+      "name": "NAND Price YoY",
       "states": [
-        "Stable",
-        "Rising",
-        "Skyrocketing"
+        "±10%",
+        "+10-50%",
+        ">+50%"
       ],
       "parents": [
         "nand_supply",
@@ -384,15 +384,15 @@
         0.18,
         0.8
       ],
-      "description": "NAND spot price trajectory."
+      "description": "YoY change in the 512Gb TLC wafer contract price at quarter close."
     },
     {
       "id": "consumer_ram_price",
-      "name": "Consumer RAM Price",
+      "name": "Retail DDR5 Kit YoY",
       "states": [
-        "Stable",
-        "Rising",
-        "Skyrocketing"
+        "±10%",
+        "+10-50%",
+        ">+50%"
       ],
       "parents": [
         "dram_price"
@@ -408,15 +408,15 @@
         0.27,
         0.7
       ],
-      "description": "Retail DIMM and SODIMM pricing. Tracks DRAM spot with slight dampening and lag due to channel inventory."
+      "description": "YoY change in the median retail price of a 32GB DDR5-6000 CL30 kit (US market)."
     },
     {
       "id": "oem_margin_pressure",
-      "name": "OEM Margin Pressure",
+      "name": "PC OEM Margin YoY",
       "states": [
-        "Low",
-        "Medium",
-        "Severe"
+        "≥-50 bps",
+        "-200..-50",
+        "<-200 bps"
       ],
       "parents": [
         "dram_price",
@@ -451,7 +451,7 @@
         0.18,
         0.8
       ],
-      "description": "Cost squeeze on PC OEMs (Dell, Lenovo, HP)."
+      "description": "YoY change in PC-segment gross margin averaged across Dell, HP, and Lenovo."
     }
   ],
   "evidence": {},

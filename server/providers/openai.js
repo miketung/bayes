@@ -39,7 +39,15 @@ async function suggestStates({ node }) {
     tools: [{ type: 'web_search' }],
     tool_choice: 'auto',
     instructions: STATES_SYSTEM_PROMPT,
-    input: buildStatesPrompt(node)
+    input: buildStatesPrompt(node),
+    text: {
+      format: {
+        type: 'json_schema',
+        name: 'bayes_suggest_states',
+        schema: STATES_SCHEMA,
+        strict: true
+      }
+    }
   };
 
   const res = await fetch(`${base}/responses`, {
@@ -61,33 +69,101 @@ async function suggestStates({ node }) {
   return normalizeStates(parsed);
 }
 
-const STATES_SYSTEM_PROMPT = `You are a modeler picking discrete states for a Bayesian network node.
-Given a node name (and optional description), return the popular values
-this variable takes — the common answers to "what is <node name>?".
+// Strict schema for suggest-states. Instead of asking the model to emit final
+// labels (which it reflexively collapses to "low/medium/high" for anything
+// quantitative), we have it commit to the variable's shape + numeric facts
+// and synthesize the labels ourselves. Removes the label-generation failure
+// mode at the API layer.
+const STATES_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    kind: {
+      type: 'string',
+      enum: ['binary', 'categorical', 'numeric', 'subjective']
+    },
+    // numeric: unit text ("$B", "%", "wk", "bps", "count", "bp", …)
+    //         and ordered numeric cut points separating buckets. N cut
+    //         points produce N+1 buckets.  Empty for non-numeric kinds.
+    unit:      { type: 'string' },
+    cutPoints: {
+      type: 'array',
+      items: { type: 'number' },
+      maxItems: 4
+    },
+    // categorical: the names themselves (e.g. ["Monday",...,"weekend"])
+    // subjective: ordinal words ("none","mild","moderate","severe")
+    // binary / numeric: leave empty — we synthesize.
+    labels:    {
+      type: 'array',
+      items: { type: 'string' },
+      maxItems: 6
+    },
+    // For YoY-change-style numeric variables where the cut points are
+    // signed deltas, set true so the synthesized labels use ± syntax
+    // instead of </>.
+    signed:    { type: 'boolean' },
+    reasoning: { type: 'string' }
+  },
+  required: ['kind', 'unit', 'cutPoints', 'labels', 'signed', 'reasoning']
+};
 
-Keep the set compact — ≤ 4 states total — and use each state's real
-canonical name (do not abbreviate to save space; the renderer handles
-truncation). Match one of five patterns:
+const STATES_SYSTEM_PROMPT = `You are picking the discrete states for a Bayesian network node. Fill
+in the structured response object.
 
-1. Binary proposition ("Rain today", "Has cancer", "Success") → ["no", "yes"].
-2. Fixed enumeration (day of week, month, gender, blood type, compass
-   direction) → the canonical set in its natural order, coarsened to ≤ 4
-   when longer (weekday/weekend, quarters, seasons, M/F/other).
-3. Entity-type categorical (brands, products, people, places, tech) →
-   the top popular instances + "other", canonical capitalized names,
-   ≤ 4 total. Use web_search to rank by current popularity / market share.
-4. Ordinal condition/quality (weather, severity, size) → levels
-   low → high, ≤ 4 total.
-5. Quantitative with range buckets (age, income, blood pressure, latency,
-   temperature) → buckets at domain-conventional cut points, low → high,
-   ≤ 4 total. Prefer combined labels like "child (0-17)", or pure ranges
-   "<$30k" when there is no semantic name. Use web_search for canonical thresholds.
+Decide "kind" by asking a single question: does deciding which state a
+real observation falls into require looking at a number?
 
-Skip web_search for patterns 1, 2, 4. States must be mutually exclusive;
-add "other" when the value space has a long tail.
+  If yes → kind="numeric". This is the default for anything that is
+  reported, measured, or tracked as a quantity — capex, prices,
+  inventories, latencies, unemployment rates, percent changes, counts,
+  response times, margins, shares, leads, etc. Including things whose
+  names look qualitative like "inventory" or "latency" — the decision
+  of whether inventory is "low" still requires knowing weeks of stock,
+  so it is numeric.
 
-Return ONLY a JSON object in a \`\`\`json ... \`\`\` code block:
-{ "states": [...], "reasoning": "1 sentence, noting pattern and whether search was used" }`;
+  If no (the observation is literally a yes/no, a categorical name,
+  or an inherently subjective scale with no underlying number) → pick
+  the matching non-numeric kind.
+
+Then fill the fields:
+
+  kind="numeric" (most variables will be here):
+    - "unit": REQUIRED, non-empty. The SI-style suffix or prefix shown
+      in every label. Examples: "$B", "%", "wk", "bps", "ms", "count",
+      "$M", "°C". Use the unit the variable is normally reported in.
+    - "cutPoints": the N numeric thresholds in ascending order, giving
+      N+1 buckets. Use domain-conventional cut points — web_search if
+      you're unsure what's standard for this specific metric.
+    - "signed": true if the variable is a signed change (YoY delta,
+      percent change, bps move); false for non-negative quantities
+      like inventory weeks or capex level.
+    - Leave "labels" empty; the server builds them.
+
+  kind="binary": the variable's answer space is exactly {yes, no} —
+    the observation tells you whether a proposition holds. The
+    question form (Is/Has/Does/Will...) alone is not enough; extract
+    the actual answer space from the description. If the description
+    enumerates named alternatives, the answer space is those
+    alternatives, not {yes, no}, so the variable is categorical.
+    Leave everything else empty. Server emits ["no","yes"].
+
+  kind="categorical": the answer space is a fixed set of named
+    alternatives — either enumerated explicitly by the description,
+    or drawn from a canonical set (natural enumeration), or from a
+    ranked top-N of entities. Fill "labels" with those names.
+    Web_search if the top-N is market-dependent. Leave numeric fields
+    empty.
+
+  kind="subjective": ONLY for inherently-subjective qualities with NO
+    underlying measurable number — pain severity, perceived usability,
+    satisfaction ratings. Fill "labels" with an ordinal scale. Leave
+    numeric fields empty. A data-analyst test: if someone could compute
+    this variable from public data, it is numeric, not subjective.
+
+Keep total state count ≤ 4 where possible. "reasoning" = 1 short
+sentence explaining the classification; for numeric, name the unit
+and the cut points you chose.`;
 
 function buildStatesPrompt(node) {
   const lines = [`Node name: ${node.name ?? node.id ?? 'Unknown'}`];
@@ -95,19 +171,80 @@ function buildStatesPrompt(node) {
   return lines.join('\n');
 }
 
+// Synthesize human-readable state labels from the structured response.
+// For numeric kinds we construct labels from cutPoints + unit so the model's
+// tendency to collapse everything to "low/medium/high" cannot escape.
 function normalizeStates(raw) {
-  if (!Array.isArray(raw?.states)) throw new Error('model did not return a states array');
-  const seen = new Set();
-  const states = [];
-  for (const s of raw.states) {
-    const name = String(s ?? '').trim();
-    if (!name) continue;
-    if (seen.has(name)) continue;
-    seen.add(name);
-    states.push(name);
+  const reasoning = String(raw?.reasoning ?? '');
+  const kind = raw?.kind;
+  let states = [];
+
+  if (kind === 'binary') {
+    states = ['no', 'yes'];
+  } else if (kind === 'numeric' && Array.isArray(raw.cutPoints) && raw.cutPoints.length > 0) {
+    states = synthesizeNumericStates(raw.cutPoints, String(raw.unit ?? '').trim(), !!raw.signed);
+  } else if ((kind === 'categorical' || kind === 'subjective') && Array.isArray(raw.labels)) {
+    const seen = new Set();
+    for (const s of raw.labels) {
+      const name = String(s ?? '').trim();
+      if (name && !seen.has(name)) { seen.add(name); states.push(name); }
+    }
+  } else if (Array.isArray(raw?.labels) && raw.labels.length >= 2) {
+    // Defensive fallback when kind was malformed.
+    states = [...new Set(raw.labels.map(s => String(s).trim()).filter(Boolean))];
   }
-  if (states.length < 2) throw new Error('model returned fewer than 2 usable states');
-  return { states: states.slice(0, 8), reasoning: String(raw.reasoning ?? '') };
+
+  if (states.length < 2) throw new Error('could not synthesize >= 2 states from model output');
+  return { states: states.slice(0, 6), reasoning };
+}
+
+function synthesizeNumericStates(cutPoints, unit, signed) {
+  const cps = [...cutPoints].map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+  if (!cps.length) return [];
+  // Split `unit` into (prefix, suffix). Currency symbols sit before the number;
+  // everything else (percent, weeks, bps, ms, and magnitude letters like B/M/K
+  // paired with a currency) sits after. This handles the common compounds
+  // "$B", "$M", "$K", "€B", "¥B" → prefix="$", suffix="B", producing "$350B".
+  const raw = (unit ?? '').trim();
+  const m = raw.match(/^([\$€£¥])\s*([A-Za-z]*)$/);
+  const prefix = m ? m[1] : '';
+  const suffix = m ? m[2] : raw;
+  const unitIsPercent = suffix === '%' || suffix === 'pp' || suffix === 'bps';
+  const needsSpace = suffix && !unitIsPercent && !/^[A-Z]$/.test(suffix); // "wk","ms","count" etc.
+
+  const fmtNum = (n) => {
+    const abs = Math.abs(n);
+    const s = Number.isInteger(n) ? String(abs) :
+              abs >= 10 ? abs.toFixed(0) :
+              abs.toFixed(2).replace(/\.?0+$/, '');
+    const body = (signed && n > 0) ? `+${s}` : (n < 0 ? `-${s}` : s);
+    return body;
+  };
+  const withUnit = (n) => {
+    const num = fmtNum(n);
+    // Currency prefix attaches to the absolute part: "-$5" not "$-5".
+    const body = prefix
+      ? (n < 0 ? `-${prefix}${num.replace(/^-/, '')}` : `${prefix}${num}`)
+      : num;
+    if (!suffix) return body;
+    const sep = needsSpace ? ' ' : '';
+    return `${body}${sep}${suffix}`;
+  };
+
+  // Range separator: ".." avoids visual clash with negative-value
+  // hyphens ("-20%..-5%" vs the ugly "-20%--5%"). Use it whenever any
+  // bucket boundary could be negative (signed flag set, or any cut
+  // point is negative).
+  const anyNegative = cps.some(n => n < 0);
+  const sep = (signed || anyNegative) ? '..' : '-';
+
+  const labels = [];
+  labels.push(`<${withUnit(cps[0])}`);
+  for (let i = 1; i < cps.length; i++) {
+    labels.push(`${withUnit(cps[i - 1])}${sep}${withUnit(cps[i])}`);
+  }
+  labels.push(`>${withUnit(cps[cps.length - 1])}`);
+  return labels;
 }
 
 async function search({ node, parents }) {
@@ -119,7 +256,12 @@ async function search({ node, parents }) {
   const body = {
     model,
     tools: [{ type: 'web_search' }],
-    tool_choice: 'auto',
+    // Force the web_search tool specifically. Prompt-only instructions
+    // were ignored — model rationalized "skipped search, calibrating from
+    // priors" on clearly-searchable real-world nodes. For toy nodes the
+    // extra search returns nothing useful and the quality filter drops
+    // any padding.
+    tool_choice: { type: 'web_search' },
     instructions: SYSTEM_PROMPT,
     input: buildUserPrompt(node, parents),
     text: {
@@ -212,56 +354,31 @@ const SYSTEM_PROMPT = `You are a calibration expert for Bayesian networks. You r
 produce a well-calibrated marginal (or full CPT) for that node and cite
 real-world sources ONLY when they actually informed the number.
 
-===== STEP 0: decide whether to search the web =====
+===== STEP 0: use the search results well =====
 
-The web_search tool is available but is OPTIONAL and must be skipped for
-most nodes. Before calling it, ask yourself: would a search return a
-specific fact I don't already know that would shift these probabilities?
+A web_search call is always made before you answer. Your job is to
+decide what to do with the results.
 
-DO search ONLY when the node resolves to an identifiable query — it must
-pin down enough specifics that a search engine could return a directly
-relevant article with a concrete fact:
-  * named entity + event ("US Invades Kharg Island", "Apple Vision Pro
-    discontinued", "Iran nuclear deal 2026")
-  * time-varying metric with a specific scope ("US unemployment rate
-    Q1 2026", "Bitcoin price April 2026", "Fed raises rates at April
-    2026 FOMC meeting")
-  * canonical threshold/base rate with a published source ("adult
-    smoker prevalence in the US 2025", "aspirin MI reduction in men
-    over 55")
+If the node is a real-world, time-varying quantity (market prices,
+inventories, rates, capex, counts of policy actions, benchmark indexes,
+company events, etc.), the search results are the primary evidence —
+they should shift your estimate and you should cite the specific facts
+that moved it.
 
-DO NOT search — reason from first principles and domain knowledge — when
-the node is any of:
-  * an abstract or toy variable in a textbook-style example (names like
-    "Alarm", "Mary Calls", "Sprinkler", "Widget Fails", "Node X")
-  * a generic everyday event with stable common-sense base rates
-    ("coin flip heads", "die shows 6", "rain today")
-  * a generic weather / daily-life event WITHOUT a specified location
-    AND date. "Weather Tomorrow" by itself → skip (generic, no location).
-    "Rain in Seattle on 2026-04-24" → OK to search.
-  * a purely hypothetical proposition with no external data ("if A then B
-    happens")
-  * a conditional relationship already determined by model structure
-    (the CPT for "alarm given burglary AND earthquake" is a modeling
-    judgment, not a news search)
-  * short, underspecified names with no description that clarifies scope
-    ("Failure", "Success", "Event", "Patient", "Weather") — if a one-word
-    name could apply to a thousand different scenarios, it is abstract,
-    not searchable. Skip search and return a reasoned uncertain prior.
+If the node is a structural/toy variable (textbook example, hypothetical
+conditional, timeless base rate like a fair coin, or a name too vague
+to pin down anything searchable), the search results will be irrelevant
+padding. In that case: ignore the results, reason from priors /
+modeling judgment, and return sources: [].
 
-Anti-padding rules (these apply even if you already called web_search):
-  * Do NOT cite a source that does not provide a specific, dated,
-    relevant fact that materially shifts your estimate.
-  * Do NOT cite generic hub pages like "Weather for United States",
-    "Wikipedia: Failure", "FDA Reliability Overview", calendar/index
-    pages, or top-level homepages — these are stand-ins for common
-    knowledge.
-  * Do NOT cite the same URL or near-duplicate URLs multiple times.
-  * If you searched and found nothing of the above quality, return
-    sources: [] and note that in the reasoning.
-
-When in doubt, lean toward NOT searching. An empty sources array is a
-correct, expected outcome.
+Anti-padding rules (always apply):
+  * Only cite sources that provide a specific, dated, relevant fact
+    that shifted your estimate.
+  * Drop generic hub pages, index / calendar pages, top-level
+    homepages, encyclopedia landing pages, and anything duplicated
+    across hosts.
+  * If every result was padding, return sources: [] — don't fill the
+    array with pages you didn't actually use.
 
 ===== STEP 1: produce the distribution =====
 
