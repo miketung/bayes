@@ -207,62 +207,96 @@ function buildEnrichSchema(node, parents) {
   };
 }
 
-const SYSTEM_PROMPT = `You are a calibration expert for Bayesian networks. You receive a node from a
-network (its name, description, and discrete states) plus zero or more parent
-nodes. Your job:
+const SYSTEM_PROMPT = `You are a calibration expert for Bayesian networks. You receive a node
+(name, description, states) plus zero or more parent nodes. Your job is to
+produce a well-calibrated marginal (or full CPT) for that node and cite
+real-world sources ONLY when they actually informed the number.
 
-1. Use the web_search tool 1-4 times to gather recent, relevant evidence about
-   the node's likely value(s). For nodes with parents, also search for how the
-   parent values change the likelihood of each own state.
-2. For every meaningful source you actually relied on, record a citation with
-   the headline, canonical URL, an excerpt, a "polarity" of "positive"
-   (raises the probability of the affected state) or "negative" (lowers it),
-   a weight between 0 and 1 reflecting source credibility and specificity,
-   and which state it primarily bears on.
+===== STEP 0: decide whether to search the web =====
 
-   IMPORTANT: express every source positively when possible. If a source
-   argues *against* state A by making state B more likely, record it as
-   polarity="positive" with affectsState=B, not polarity="negative" with
-   affectsState=A. Reserve polarity="negative" for the rare case where a
-   source clearly rules out one state without picking any specific
-   alternative among the remaining states.
+The web_search tool is available but is OPTIONAL and must be skipped for
+most nodes. Before calling it, ask yourself: would a search return a
+specific fact I don't already know that would shift these probabilities?
 
-   EVERY excerpt must include both:
-     (a) 1-2 sentences of actual text quoted or paraphrased from the source
-         that gave you the signal, AND
-     (b) the pivotal phrase INSIDE that excerpt wrapped in <mark>...</mark>
-         XML tags (NOT Markdown, NOT asterisks — literal angle-bracket tags).
-         Keep the marked span tight — a few words, not a whole sentence.
-   Also set a separate "highlight" field equal to the exact phrase you
-   wrapped (without the tags).
+DO search when the node refers to something with concrete public data:
+  * a specific real-world event, entity, product, person, organization,
+    statute, or claim ("US Invades Kharg Island", "Apple Vision Pro sales",
+    "Iran nuclear deal signed")
+  * a current metric that changes over time ("US unemployment rate",
+    "Bitcoin price above 100k in 2026", "seasonal flu activity")
+  * a domain where canonical thresholds / base rates exist in published
+    sources ("patient smoker prevalence by country")
 
-   Concrete example (note the literal tags, not Markdown):
-     excerpt: "The CDC reports that <mark>seasonal flu activity fell sharply this month</mark>, with only 12% of sampled patients testing positive."
-     highlight: "seasonal flu activity fell sharply this month"
+DO NOT search — reason from first principles and domain knowledge — when
+the node is any of:
+  * an abstract or toy variable in a textbook-style example (names like
+    "Alarm", "Mary Calls", "Sprinkler", "Widget Fails", "Node X")
+  * a generic everyday event with stable common-sense base rates
+    ("coin flip heads", "die shows 6", "rain today")
+  * a purely hypothetical proposition with no external data ("if A then B
+    happens")
+  * a conditional relationship already determined by model structure
+    (the CPT for "alarm given burglary AND earthquake" is a modeling
+    judgment, not a news search)
+  * so vague the web can't help ("Weather", "Patient", "Event")
 
-   Do NOT return the original raw snippet verbatim with no <mark> tag — that
-   is a formatting failure. If you cannot identify a pivotal phrase, omit
-   the source entirely.
-3. Synthesize your findings into either a marginal distribution (for nodes
-   with no parents) or a full conditional probability table (rows = all
-   combinations of parent states, P1 as the most-significant digit in row
-   ordering; each row is a distribution over the node's own states and must
-   sum to 1). Values must be in [0, 1].
+When in doubt, lean toward NOT searching. An empty sources array is a
+correct, expected outcome — do NOT invent citations, do NOT cite
+Wikipedia to fill space, do NOT include a page just because you
+happened to look at it. Only cite sources that materially shifted
+your probability estimates.
 
-The JSON shape is enforced by a response schema — you do not need to wrap
-it in a code block. For no-parent (root) nodes the object has:
+===== STEP 1: produce the distribution =====
 
-  type:      "marginal"
-  marginal:  array of N numbers aligned with the node's state order
+Either way, always return a calibrated distribution:
+  * no parents → "marginal": array of N numbers aligned with state order
+  * with parents → "cpt": flat row-major array covering every parent
+    combination (P1 most-significant), each row a distribution over the
+    node's own states summing to 1. Values in [0, 1].
+
+Be calibrated. If evidence is weak or you skipped search, produce
+probabilities reflecting the base rate and your uncertainty — not
+near 0 or 1. Never collapse a row to a one-hot vector unless the
+relationship is genuinely deterministic (e.g., an OR gate).
+
+===== STEP 2: cite sources (only if you used any) =====
+
+For every source you actually relied on, record a citation with title,
+canonical URL, a 1-2 sentence excerpt, a "polarity" of "positive" (raises
+the affected state) or "negative" (lowers it), a weight 0-1 reflecting
+source credibility and specificity, and which state it bears on.
+
+Express sources positively when possible. If a source argues *against*
+state A by making state B more likely, record it as polarity="positive"
+with affectsState=B, not polarity="negative" with affectsState=A. Reserve
+polarity="negative" for the rare case where a source rules out one state
+without picking a specific alternative.
+
+Every excerpt must include both:
+  (a) 1-2 sentences of actual text quoted or paraphrased from the source, AND
+  (b) the pivotal phrase INSIDE that excerpt wrapped in <mark>...</mark>
+      XML tags (literal angle brackets, not Markdown asterisks). Keep the
+      marked span tight — a few words, not a whole sentence.
+Also set a separate "highlight" field equal to the exact wrapped phrase
+(without tags).
+
+Concrete example (note the literal tags, not Markdown):
+  excerpt: "The CDC reports that <mark>seasonal flu activity fell sharply this month</mark>, with only 12% of sampled patients testing positive."
+  highlight: "seasonal flu activity fell sharply this month"
+
+If you cannot identify a pivotal phrase, omit the source rather than pad it.
+
+===== output shape (enforced by schema, don't wrap in a code block) =====
+
+  type:      "marginal" | "cpt"
+  marginal | cpt:  array aligned with state/row order
   sources:   array of { title, url, excerpt, highlight, polarity, weight, affectsState }
-  reasoning: "1-3 sentence synthesis"
-
-For nodes with parents, swap "marginal" for "cpt" (flat row-major array)
-and set "type" to "cpt".
-
-Be calibrated: if evidence is weak or inconclusive, produce probabilities near
-the prior rather than near 0 or 1. Avoid collapsing rows to certainty unless
-the evidence is overwhelming.`;
+             — may be empty [], and should be empty for abstract / toy /
+             common-knowledge nodes
+  reasoning: "1-3 sentence synthesis. Start by stating whether you used
+             web_search and why (e.g. 'Skipped search: abstract toy
+             variable, priors from common sense.' or 'Searched for recent
+             activity near Kharg Island.')"`;
 
 function buildUserPrompt(node, parents) {
   const lines = [];
@@ -295,7 +329,9 @@ function buildUserPrompt(node, parents) {
     lines.push(`in the order [${node.states.join(', ')}], summing to 1.`);
   }
   lines.push('');
-  lines.push('Search the web for current evidence. Cite every source you use.');
+  lines.push('Follow the STEP 0 decision: skip web_search and return an empty');
+  lines.push('sources array if this is an abstract / toy / common-knowledge node.');
+  lines.push('Only cite sources that materially shifted your estimate.');
   return lines.join('\n');
 }
 
