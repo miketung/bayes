@@ -8,12 +8,8 @@
     "bayes": "./cli/bayes.js"
   },
   "scripts": {
-    "dev": "concurrently --kill-others-on-fail --names web,api --prefix-colors cyan,magenta \"vite\" \"node --watch server/index.js\"",
-    "dev:web": "vite",
-    "dev:api": "node --watch server/index.js",
-    "build": "vite build && cp -R examples dist/examples",
-    "preview": "vite preview",
-    "start": "npm run build && node server/index.js",
+    "dev": "node --watch server/index.js",
+    "start": "node server/index.js",
     "test": "node --test test/*.test.js",
     "cli": "node cli/bayes.js"
   },
@@ -26,9 +22,5 @@
   ],
   "engines": {
     "node": ">=18.17"
-  },
-  "devDependencies": {
-    "concurrently": "^9.1.0",
-    "vite": "^5.4.0"
   }
 }

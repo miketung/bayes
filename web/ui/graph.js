@@ -69,8 +69,8 @@ function buildStyle(t) {
         'background-color': t.handle,
         'border-color': '#ffffff',
         'border-width': 2,
-        'width': 18,
-        'height': 18,
+        'width': 24,
+        'height': 24,
         'shape': 'ellipse',
         'label': '+',
         'color': '#ffffff',
@@ -141,7 +141,7 @@ export function createGraph(container, { theme, onSelect, onSelectEdge, onEdge, 
   const handleOffset = (node) => {
     const p = node.position();
     const w = node.width();
-    return { x: p.x + w / 2 + 14, y: p.y };
+    return { x: p.x + w / 2, y: p.y };
   };
 
   const showHandle = (node) => {

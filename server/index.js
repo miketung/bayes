@@ -18,7 +18,10 @@ import { fileURLToPath } from 'node:url';
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
 import { enrich, enrichAvailable, providerInfo, suggestStates } from './enrich.js';
 
-const DIST_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
+// Serve the project root directly — source is plain ES modules + CDN deps,
+// so no bundling step is needed. index.html, web/, lib/, examples/ are all
+// requested by the browser as-is.
+const STATIC_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -114,14 +117,25 @@ function readJSON(req) {
   });
 }
 
+// Only these top-level names may be served. Everything else in the project
+// root (.env, .git, node_modules, server/, package.json, etc.) is off-limits.
+const ALLOWED_TOPLEVEL = new Set([
+  'index.html',
+  'favicon.ico',
+  'web', 'lib', 'examples'
+]);
+
 async function serveStatic(req, res) {
   let urlPath = req.url.split('?')[0].split('#')[0];
   try { urlPath = decodeURIComponent(urlPath); } catch { return false; }
   if (urlPath === '/' || urlPath === '') urlPath = '/index.html';
 
-  const rel = normalize(urlPath).replace(/^(\.\.(\/|\\|$))+/, '');
-  const filePath = join(DIST_DIR, rel);
-  if (filePath !== DIST_DIR && !filePath.startsWith(DIST_DIR + sep)) return false;
+  const rel = normalize(urlPath).replace(/^(\.\.(\/|\\|$))+/, '').replace(/^[/\\]+/, '');
+  // Only allow top-level names we've whitelisted
+  const topLevel = rel.split(/[\\/]/)[0];
+  if (!ALLOWED_TOPLEVEL.has(topLevel)) return false;
+  const filePath = join(STATIC_ROOT, rel);
+  if (filePath !== STATIC_ROOT && !filePath.startsWith(STATIC_ROOT + sep)) return false;
 
   let s;
   try { s = await stat(filePath); } catch { return false; }
