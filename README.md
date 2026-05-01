@@ -1,5 +1,11 @@
 # Bayes
 
+> *The theory of probabilities is at bottom nothing but common sense reduced to calculus; it
+> enables us to appreciate with exactness that which accurate minds feel with a sort of instinct
+> for which ofttimes they are unable to account.*
+>
+> — Pierre Simon Laplace, 1819
+
 A Bayesian network toolkit in three parts:
 
 - **`lib/`** — a zero-dependency ES-module JavaScript library. Runs in the
@@ -16,16 +22,14 @@ Everything shares one `package.json` and the same library code.
 ## Quick start
 
 ```bash
-npm install       # installs vite + concurrently
-npm run dev       # runs the web app at http://localhost:5173 + the optional AI API on :3001
+npm install
+npm run dev       # runs the server at http://localhost:3001 (with --watch)
 npm test          # runs the inference / IO test suite
 ```
 
-`npm run dev` launches two processes side-by-side: Vite for the static SPA and
-a tiny Node HTTP server for the (optional) AI enrichment endpoint. You can also
-run them separately: `npm run dev:web` and `npm run dev:api`. The static app
-works fine on its own — the AI button only appears when the API server is
-reachable and an API key is configured.
+`npm run dev` starts a single Node server that serves the static SPA and the
+AI enrichment API. The static app works fine on its own — the AI button only
+appears when an API key is configured.
 
 ## Optional AI enrichment
 
@@ -144,7 +148,7 @@ Within a row, entries are in the declared order of the node's own states.
 ## Repository layout
 
 ```
-index.html              static entry (Vite serves from the repo root)
+index.html              static entry (served by server/index.js)
 lib/                    core library (zero deps, browser + node)
 web/                    SPA wiring + UI components
 cli/                    Node CLI (#!/usr/bin/env node, zero deps)

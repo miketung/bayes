@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Minimal HTTP server for AI enrichment. Zero npm deps beyond what the rest
-// of the project already uses. Runs alongside Vite; Vite proxies /api/* here.
+// Minimal HTTP server: serves the static SPA and the AI enrichment API.
+// Zero npm deps beyond what the rest of the project already uses.
 //
 // Env:
 //   OPENAI_API_KEY   required for AI features
@@ -48,7 +48,7 @@ loadEnvFile('.env');
 const PORT = Number(process.env.BAYES_PORT) || 3001;
 
 const server = createServer(async (req, res) => {
-  // Permissive CORS for local dev (Vite dev server is on a different port).
+  // Permissive CORS for local dev.
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'content-type');
