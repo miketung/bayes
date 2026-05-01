@@ -4,10 +4,6 @@
 // Usage:
 //   bayes <subcommand> <file.json> [--flags]
 //   bayes help
-//
-// All subcommands read <file.json>, apply the operation, and (for mutating
-// commands) write the result back.  Output is JSON by default so Claude can
-// parse it; pass --format text for a human-readable summary.
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { parseArgs } from 'node:util';
@@ -21,39 +17,26 @@ const USAGE = `bayes — Bayesian network CLI
 
 Usage: bayes <command> <file> [options]
 
-Network management
-  new <file> [--name NAME]                             create empty network
-  info <file>                                          show structure summary
-  list <file> [--algorithm ve|lw] [--samples N]        list nodes with current marginals
-  export <file>                                        print JSON to stdout
-  import <src> <dst>                                   parse+revalidate+rewrite
-
-Nodes
-  add-node <file> --id ID [--name N] --states a,b,c [--parents P1,P2] [--description TEXT]
-  remove-node <file> --id ID
-  rename-node <file> --id ID --name NAME
-  set-states <file> --id ID --states a,b,c            (clears dependent CPTs)
-  set-description <file> --id ID --text TEXT         (pass empty --text "" to clear)
-
-Edges
-  add-edge <file> --from PARENT --to CHILD             (reshapes child CPT)
-  remove-edge <file> --from PARENT --to CHILD
-
-CPTs
-  set-cpt <file> --id ID --probs 0.1,0.9,...           row-major; --normalize to auto-normalize
-
-Evidence
-  set-evidence <file> --id ID --state STATE
-  clear-evidence <file> [--id ID]                      omit --id to clear all
-
 Inference
-  query <file> --id ID [--algorithm ve|lw] [--samples N]
+  query <file|--net JSON> --id ID [--evidence k=v ...] [--algorithm ve|lw]
+  list  <file|--net JSON> [--evidence k=v ...] [--algorithm ve|lw]
+
+Building / updating a network on disk
+  new <file> [--name NAME]
+  add-node <file> --id ID --states a,b,c [--parents P1,P2]
+  remove-node <file> --id ID
+  add-edge <file> --from PARENT --to CHILD
+  remove-edge <file> --from PARENT --to CHILD
+  set-cpt <file> --id ID --probs p,p,... [--normalize]
+  set-evidence <file> --id ID --state STATE
+  clear-evidence <file> [--id ID]
 
 Common flags
   --format json|text      output format (default: json)
-  --out FILE              write mutations to a different file
+  --net JSON              pass network inline instead of reading a file
+  --evidence id=state     set evidence inline (repeatable; query/list)
 
-Run "bayes help <command>" for more detail.
+Pass - as <file> to read from stdin.
 `;
 
 function die(msg, code = 1) {
@@ -62,11 +45,45 @@ function die(msg, code = 1) {
 }
 
 function loadNet(path) {
+  if (path === '-') return loadNetFromStdin();
+  if (path === null) die('no file or --net provided');
   if (!existsSync(path)) die(`file not found: ${path}`);
   try {
     return parse(readFileSync(path, 'utf8'));
   } catch (e) {
     die(`${path}: ${e.message}`);
+  }
+}
+
+function loadNetFromJSON(json) {
+  try {
+    return parse(json);
+  } catch (e) {
+    die(`--net: ${e.message}`);
+  }
+}
+
+function loadNetFromStdin() {
+  try {
+    const json = readFileSync(0, 'utf8');
+    return parse(json);
+  } catch (e) {
+    die(`stdin: ${e.message}`);
+  }
+}
+
+function resolveNet(file, values) {
+  return values.net ? loadNetFromJSON(values.net) : loadNet(file);
+}
+
+function applyEvidenceFlags(net, evidenceFlags) {
+  if (!evidenceFlags) return;
+  for (const entry of evidenceFlags) {
+    const eq = entry.indexOf('=');
+    if (eq < 1) die(`bad --evidence format: "${entry}" (expected id=state)`);
+    const id = entry.slice(0, eq);
+    const state = entry.slice(eq + 1);
+    net.setEvidence(id, state);
   }
 }
 
@@ -81,7 +98,6 @@ function printResult(value, format) {
       process.stdout.write(value.__text + '\n');
       return;
     }
-    // For simple { ok: true, ...fields } results, print a one-line summary.
     if (value && typeof value === 'object' && value.ok === true) {
       const parts = ['ok'];
       for (const [k, v] of Object.entries(value)) {
@@ -124,15 +140,9 @@ if (!subcommand || subcommand === 'help' || subcommand === '-h' || subcommand ==
 try {
   switch (subcommand) {
     case 'new':            cmdNew(rest); break;
-    case 'info':           cmdInfo(rest); break;
     case 'list':           cmdList(rest); break;
-    case 'export':         cmdExport(rest); break;
-    case 'import':         cmdImport(rest); break;
     case 'add-node':       cmdAddNode(rest); break;
     case 'remove-node':    cmdRemoveNode(rest); break;
-    case 'rename-node':    cmdRenameNode(rest); break;
-    case 'set-states':     cmdSetStates(rest); break;
-    case 'set-description': cmdSetDescription(rest); break;
     case 'add-edge':       cmdAddEdge(rest); break;
     case 'remove-edge':    cmdRemoveEdge(rest); break;
     case 'set-cpt':        cmdSetCpt(rest); break;
@@ -147,12 +157,19 @@ try {
 
 // ---------- command implementations ----------
 
-function parseCmd(argv, opts) {
-  // First positional is the file path; remainder goes through parseArgs.
+function parseCmd(argv, opts, { fileOptional = false } = {}) {
+  if (fileOptional) {
+    const netIdx = argv.indexOf('--net');
+    if (netIdx !== -1) {
+      opts.net = { type: 'string' };
+      const { values } = parseArgs({ args: argv, options: opts, allowPositionals: false, strict: true });
+      return { file: null, values };
+    }
+  }
   const [file, ...rest] = argv;
-  if (!file) die(`missing file argument`);
+  if (!file) die(`missing file argument (or use --net '{...}')`);
   const { values } = parseArgs({ args: rest, options: opts, allowPositionals: false, strict: true });
-  return { file: resolvePath(file), values };
+  return { file: file === '-' ? '-' : resolvePath(file), values };
 }
 
 function cmdNew(argv) {
@@ -165,43 +182,15 @@ function cmdNew(argv) {
   printResult({ ok: true, file, name: net.name }, values.format);
 }
 
-function cmdInfo(argv) {
-  const { file, values } = parseCmd(argv, {
-    format: { type: 'string', default: 'json' }
-  });
-  const net = loadNet(file);
-  const summary = {
-    name: net.name,
-    nodeCount: net.size,
-    edgeCount: [...net.nodes.values()].reduce((n, v) => n + v.parents.length, 0),
-    nodes: [...net.nodes.values()].map(n => ({
-      id: n.id, name: n.name, states: n.states, parents: n.parents,
-      description: n.description ?? null,
-      evidence: net.evidence.has(n.id) ? n.states[net.evidence.get(n.id)] : null
-    }))
-  };
-  if (values.format === 'text') {
-    let t = `Network: ${summary.name}\n`;
-    t += `Nodes: ${summary.nodeCount}, Edges: ${summary.edgeCount}\n\n`;
-    for (const n of summary.nodes) {
-      const ev = n.evidence ? `  [evidence: ${n.evidence}]` : '';
-      t += `  ${n.id} "${n.name}" [${n.states.join('|')}]${ev}\n`;
-      if (n.parents.length) t += `    parents: ${n.parents.join(', ')}\n`;
-      if (n.description) t += `    ${n.description.split('\n').join('\n    ')}\n`;
-    }
-    process.stdout.write(t);
-  } else {
-    printResult(summary, 'json');
-  }
-}
-
 function cmdList(argv) {
   const { file, values } = parseCmd(argv, {
     algorithm: { type: 'string', default: 've' },
     samples: { type: 'string' },
+    evidence: { type: 'string', multiple: true },
     format: { type: 'string', default: 'json' }
-  });
-  const net = loadNet(file);
+  }, { fileOptional: true });
+  const net = resolveNet(file, values);
+  applyEvidenceFlags(net, values.evidence);
   const results = [];
   for (const id of net.ids()) {
     const marginal = infer(net, id, {
@@ -223,33 +212,12 @@ function cmdList(argv) {
   }
 }
 
-function cmdExport(argv) {
-  const { file } = parseCmd(argv, {});
-  const net = loadNet(file);
-  process.stdout.write(stringify(net) + '\n');
-}
-
-function cmdImport(argv) {
-  const [src, dst, ...rest] = argv;
-  if (!src || !dst) die('usage: bayes import <src> <dst> [--format json|text]');
-  const { values } = parseArgs({
-    args: rest,
-    options: { format: { type: 'string', default: 'json' } },
-    allowPositionals: false,
-    strict: true
-  });
-  const net = parse(readFileSync(resolvePath(src), 'utf8'));
-  saveNet(net, resolvePath(dst));
-  printResult({ ok: true, src, dst, nodes: net.size }, values.format);
-}
-
 function cmdAddNode(argv) {
   const { file, values } = parseCmd(argv, {
     id: { type: 'string' },
     name: { type: 'string' },
     states: { type: 'string' },
     parents: { type: 'string' },
-    description: { type: 'string' },
     out: { type: 'string' },
     format: { type: 'string', default: 'json' }
   });
@@ -260,26 +228,10 @@ function cmdAddNode(argv) {
     id: values.id,
     name: values.name,
     states: parseCSV(values.states),
-    parents: parseCSV(values.parents) ?? [],
-    description: values.description
+    parents: parseCSV(values.parents) ?? []
   });
   saveNet(net, values.out ? resolvePath(values.out) : file);
   printResult({ ok: true, id: values.id }, values.format);
-}
-
-function cmdSetDescription(argv) {
-  const { file, values } = parseCmd(argv, {
-    id: { type: 'string' },
-    text: { type: 'string' },
-    out: { type: 'string' },
-    format: { type: 'string', default: 'json' }
-  });
-  if (!values.id) die('--id required');
-  if (values.text == null) die('--text required (pass "" to clear)');
-  const net = loadNet(file);
-  net.setDescription(values.id, values.text);
-  saveNet(net, values.out ? resolvePath(values.out) : file);
-  printResult({ ok: true, id: values.id, cleared: values.text === '' }, values.format);
 }
 
 function cmdRemoveNode(argv) {
@@ -293,34 +245,6 @@ function cmdRemoveNode(argv) {
   net.removeNode(values.id);
   saveNet(net, values.out ? resolvePath(values.out) : file);
   printResult({ ok: true, removed: values.id }, values.format);
-}
-
-function cmdRenameNode(argv) {
-  const { file, values } = parseCmd(argv, {
-    id: { type: 'string' },
-    name: { type: 'string' },
-    out: { type: 'string' },
-    format: { type: 'string', default: 'json' }
-  });
-  if (!values.id || !values.name) die('--id and --name required');
-  const net = loadNet(file);
-  net.renameNode(values.id, values.name);
-  saveNet(net, values.out ? resolvePath(values.out) : file);
-  printResult({ ok: true, id: values.id, name: values.name }, values.format);
-}
-
-function cmdSetStates(argv) {
-  const { file, values } = parseCmd(argv, {
-    id: { type: 'string' },
-    states: { type: 'string' },
-    out: { type: 'string' },
-    format: { type: 'string', default: 'json' }
-  });
-  if (!values.id || !values.states) die('--id and --states required');
-  const net = loadNet(file);
-  net.setStates(values.id, parseCSV(values.states));
-  saveNet(net, values.out ? resolvePath(values.out) : file);
-  printResult({ ok: true, id: values.id, states: parseCSV(values.states) }, values.format);
 }
 
 function cmdAddEdge(argv) {
@@ -398,10 +322,12 @@ function cmdQuery(argv) {
     id: { type: 'string' },
     algorithm: { type: 'string', default: 've' },
     samples: { type: 'string' },
+    evidence: { type: 'string', multiple: true },
     format: { type: 'string', default: 'json' }
-  });
+  }, { fileOptional: true });
   if (!values.id) die('--id required');
-  const net = loadNet(file);
+  const net = resolveNet(file, values);
+  applyEvidenceFlags(net, values.evidence);
   const started = Date.now();
   const marginal = infer(net, values.id, {
     algorithm: values.algorithm,
