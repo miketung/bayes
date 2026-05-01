@@ -1,6 +1,6 @@
 ---
 name: bayes
-description: Build and query Bayesian networks as a structured reasoning tool. Use when the task involves probabilistic reasoning over multiple related variables, diagnosis under uncertainty, updating beliefs as new evidence arrives, or any request phrased as "reason about X with a Bayes net" / "model the probability of Y given Z". Especially useful when a decision hinges on several uncertain, interdependent factors.
+description: Build and query Bayesian networks as a structured reasoning tool. Use when the task involves thinking over multiple related variables, diagnosis under uncertainty, or updating beliefs as new evidence arrives.
 ---
 
 # bayes — Bayesian networks as a reasoning tool
