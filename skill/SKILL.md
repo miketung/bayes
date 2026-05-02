@@ -16,6 +16,15 @@ evidence, or compare hypotheses that share latent causes.
 If the task is a single-variable prior or a calculation that doesn't benefit
 from structure, just do the math directly — don't force a network.
 
+## Grounding priors
+
+If the CPTs depend on real-world rates — prevalence, prices, base rates,
+historical frequencies — web-search them before filling numbers and cite
+the source next to each value in your response. Skip this when the network is illustrative,
+the numbers come from the user or problem statement, or it's a toy example.
+If the harness has no web search, flag estimates as such and widen the
+distributions to reflect the added uncertainty.
+
 ## Two workflows
 
 ### One-shot: build the JSON, query inline
