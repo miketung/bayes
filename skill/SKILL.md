@@ -35,16 +35,27 @@ no file needed.
 
 ```
 bayes query --net '{
-  "version": 1, "name": "Flu",
+  "version": 1, "name": "Whodunit",
   "nodes": [
-    { "id": "flu",   "states": ["no","yes"], "parents": [], "cpt": [0.95, 0.05] },
-    { "id": "fever", "states": ["no","yes"], "parents": ["flu"], "cpt": [0.95,0.05, 0.20,0.80] },
-    { "id": "cough", "states": ["no","yes"], "parents": ["flu"], "cpt": [0.90,0.10, 0.30,0.70] }
+    { "id": "culprit", "states": ["scarlett","plum","mustard","green"], "parents": [],
+      "cpt": [0.30, 0.20, 0.30, 0.20] },
+    { "id": "weapon_found", "states": ["knife","rope","wrench","revolver"], "parents": ["culprit"],
+      "cpt": [0.40,0.20,0.10,0.30, 0.10,0.20,0.50,0.20, 0.10,0.10,0.20,0.60, 0.20,0.40,0.30,0.10] },
+    { "id": "time_of_death", "states": ["6pm-8pm","8pm-10pm","10pm-12am","after_12am"], "parents": ["culprit"],
+      "cpt": [0.10,0.20,0.40,0.30, 0.20,0.30,0.30,0.20, 0.40,0.40,0.15,0.05, 0.30,0.40,0.20,0.10] },
+    { "id": "fingerprint_match", "states": ["no","yes"], "parents": ["culprit"],
+      "cpt": [0.70,0.30, 0.40,0.60, 0.50,0.50, 0.20,0.80] }
   ]
-}' --id flu --evidence fever=yes --evidence cough=yes
+}' --id culprit --evidence weapon_found=wrench --evidence time_of_death=10pm-12am --evidence fingerprint_match=yes
 ```
 
-Result: `{ "marginal": { "no": 0.145, "yes": 0.855 }, ... }`
+The output variable (`culprit`) has named entities as states — that's the
+default whenever the question asks "which one?". The other nodes demonstrate
+the two remaining common kinds: numeric ranges (`time_of_death`) and binary
+(`fingerprint_match`). Single-quote evidence values that contain shell
+metacharacters like `<`, `>`, or `≥`.
+
+Result: `{ "marginal": { "scarlett": 0.101, "plum": 0.504, "mustard": 0.126, "green": 0.269 }, ... }`
 
 Use `--format text` for human-readable output. Use `list` instead of `query`
 to see all marginals at once.
@@ -55,25 +66,31 @@ When the model evolves over the conversation — start simple, query, add
 variables, re-query — use mutation commands on a file.
 
 ```
-bayes new /tmp/flu.json --name "Flu diagnosis"
+bayes new /tmp/whodunit.json --name "Whodunit"
 
-bayes add-node /tmp/flu.json --id flu    --states no,yes
-bayes add-node /tmp/flu.json --id fever  --states no,yes --parents flu
-bayes add-node /tmp/flu.json --id cough  --states no,yes --parents flu
+bayes add-node /tmp/whodunit.json --id culprit           --states scarlett,plum,mustard,green
+bayes add-node /tmp/whodunit.json --id weapon_found      --states knife,rope,wrench,revolver --parents culprit
+bayes add-node /tmp/whodunit.json --id time_of_death     --states '6pm-8pm,8pm-10pm,10pm-12am,after_12am' --parents culprit
+bayes add-node /tmp/whodunit.json --id fingerprint_match --states no,yes --parents culprit
 
-bayes set-cpt /tmp/flu.json --id flu    --probs 0.95,0.05
-bayes set-cpt /tmp/flu.json --id fever  --probs 0.95,0.05, 0.20,0.80
-bayes set-cpt /tmp/flu.json --id cough  --probs 0.90,0.10, 0.30,0.70
+bayes set-cpt /tmp/whodunit.json --id culprit           --probs 0.30,0.20,0.30,0.20
+bayes set-cpt /tmp/whodunit.json --id weapon_found      --probs 0.40,0.20,0.10,0.30, 0.10,0.20,0.50,0.20, 0.10,0.10,0.20,0.60, 0.20,0.40,0.30,0.10
+bayes set-cpt /tmp/whodunit.json --id time_of_death     --probs 0.10,0.20,0.40,0.30, 0.20,0.30,0.30,0.20, 0.40,0.40,0.15,0.05, 0.30,0.40,0.20,0.10
+bayes set-cpt /tmp/whodunit.json --id fingerprint_match --probs 0.70,0.30, 0.40,0.60, 0.50,0.50, 0.20,0.80
 
-bayes query /tmp/flu.json --id flu --evidence fever=yes --evidence cough=yes --format text
-# → P(flu=yes | fever=yes, cough=yes) ≈ 85%
+bayes query /tmp/whodunit.json --id culprit --evidence weapon_found=wrench --evidence time_of_death=10pm-12am --evidence fingerprint_match=yes --format text
+# → plum ~50%, green ~27%, mustard ~13%, scarlett ~10%
 
-# Later: add a new variable
-bayes add-node /tmp/flu.json --id aches --states no,yes --parents flu
-bayes set-cpt /tmp/flu.json --id aches --probs 0.85,0.15, 0.30,0.70
+# `list` shows all marginals at once — useful for sanity-checking priors:
+bayes list /tmp/whodunit.json --format text
 
-# Re-query with more evidence
-bayes query /tmp/flu.json --id flu --evidence fever=yes --evidence cough=yes --evidence aches=yes --format text
+# Later: a strong motive surfaces — add it as a new node
+bayes add-node /tmp/whodunit.json --id motive_strength --states none,weak,strong --parents culprit
+bayes set-cpt /tmp/whodunit.json --id motive_strength --probs 0.20,0.30,0.50, 0.50,0.30,0.20, 0.40,0.40,0.20, 0.20,0.30,0.50
+
+# Re-query — Green (strong-motive profile) overtakes Plum (weak-motive profile)
+bayes query /tmp/whodunit.json --id culprit --evidence weapon_found=wrench --evidence time_of_death=10pm-12am --evidence fingerprint_match=yes --evidence motive_strength=strong --format text
+# → green ~43%, plum ~32%, scarlett ~16%, mustard ~8%
 ```
 
 You can also write the JSON file directly (with the Write tool) and use the
@@ -145,7 +162,8 @@ stdin.
 
 - **State the DAG before filling numbers.** Verify edges are causal
   (parents cause children).
-- **Use 2–3 states per node.** Binary is often enough.
+- **Pick states at the granularity the question needs** — yes/no, named
+  categories (candidates, diagnoses), or bucketed ranges for quantities.
 - **Avoid 0 or 1 in CPTs** unless truly deterministic — zeros can make
   evidence combinations impossible.
 - **Re-query after new evidence** to watch beliefs shift.
