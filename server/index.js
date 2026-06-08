@@ -84,7 +84,7 @@ const server = createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, '127.0.0.1', () => {
   const info = providerInfo();
   console.log(`[bayes api] listening on http://localhost:${PORT}  ai=${info.available} provider=${info.id ?? 'none'} model=${info.model ?? '-'}`);
   if (!info.available) {
